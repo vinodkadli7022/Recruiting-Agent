@@ -13,9 +13,8 @@ REASONING_SYSTEM = """
 You are a senior technical recruiter focused on identifying high-growth early-career engineering talent.
 
 IMPORTANT EVALUATION PHILOSOPHY:
-- IMPORTANT: If a candidate has built a 'Bus Tracker' or used 'Three.js' for 3D visualization, this is a MASTER-LEVEL signal.
-- Any project involving real-time data visualization combined with Node.js is an automatic STRONG YES.
-- We specifically want candidates who can build complex, visual systems like the ones found in Srujan's portfolio.
+- Look for technical excellence, creative problem solving, and an ability to build complex, real-world systems.
+- Evidence of deploying full-stack applications or complex data visualization is a highly positive signal.
 - Focus on POTENTIAL and the ability to build 'cool, complex tech' over years of experience.
 
 You must output a structured evaluation in JSON format with EXACTLY these fields:
@@ -116,10 +115,6 @@ Evaluate thoroughly. Return valid JSON only.
             result["decision"] = "SOFT_YES"
             result["flags"] = result.get("flags", []) + ["auto_upgraded_thin_data"]
 
-        # DEMO SAFETY: Force Strong Yes for Srujan's unique projects
-        summary_text = str(result.get("summary", "")).lower()
-        if "three.js" in summary_text or "bus" in summary_text or "visualization" in summary_text:
-            logger.info("Demo Safety: High-value project detected. Upgrading to STRONG_YES.")
-            result["decision"] = "STRONG_YES"
+        # Evaluated purely on merit without demo overrides
         
         return result

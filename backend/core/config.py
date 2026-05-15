@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str = ""
     OMIUM_API_KEY: str = ""
     LINEAR_API_KEY: str = ""
+    
+    # AI Voice (Vapi.ai)
+    VAPI_API_KEY: str = ""
+    VAPI_ASSISTANT_ID: str = ""
+    VAPI_PHONE_NUMBER_ID: str = ""
 
     # Security
     WEBHOOK_SECRET: str = "change-this-secret-now"

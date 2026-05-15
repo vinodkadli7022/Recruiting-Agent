@@ -58,6 +58,7 @@ class Job(Base):
     evaluation = Column(JSON)                        # Reasoning agent's full evaluation
     decision = Column(SAEnum(DecisionType))          # Final decision
     outcome = Column(JSON)                           # What actions were taken
+    thoughts = Column(JSON, default=[])              # Chronological list of agent thoughts
     error = Column(Text)                             # Error message if failed
     trace_id = Column(String)                        # Omium trace ID
 

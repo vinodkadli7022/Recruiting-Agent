@@ -28,19 +28,40 @@ async def list_jobs(
         .offset(offset)
     )
     jobs = result.scalars().all()
-    return [
-        {
+    # Eagerly load steps and thoughts for all jobs to keep demo UI fast
+    jobs_data = []
+    for j in jobs:
+        steps_result = await db.execute(
+            select(AgentStep)
+            .where(AgentStep.job_id == j.id)
+            .order_by(AgentStep.created_at.asc())
+        )
+        steps = steps_result.scalars().all()
+        
+        jobs_data.append({
+            "id": j.id,
             "job_id": j.id,
-            "name": j.payload.get("name") if j.payload else None,
+            "payload": j.payload,
             "email": j.email,
             "role_applied": j.role_applied,
             "status": j.status.value if j.status else None,
             "decision": j.decision.value if j.decision else None,
+            "evaluation": j.evaluation,
+            "thoughts": j.thoughts or [],
+            "agent_steps": [
+                {
+                    "id": s.id,
+                    "agent": s.agent_name,
+                    "step": s.step_name,
+                    "status": s.status,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in steps
+            ],
             "created_at": j.created_at.isoformat() if j.created_at else None,
             "completed_at": j.completed_at.isoformat() if j.completed_at else None,
-        }
-        for j in jobs
-    ]
+        })
+    return jobs_data
 
 
 @router.get("/{job_id}")

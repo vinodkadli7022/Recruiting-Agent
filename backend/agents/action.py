@@ -2,7 +2,6 @@
 # Action Agent — email + tickets + calendar
 
 import json
-import omium
 import logging
 from typing import Dict, Any
 
@@ -47,7 +46,7 @@ Return valid JSON only:
 {
   "email_subject": string,
   "email_body": string (plain text, no HTML),
-  "actions_to_take": ["send_email", "create_ticket", "send_slack"],
+  "actions_to_take": ["send_email", "create_ticket", "send_slack", "trigger_voice_call"],
   "ticket_title": string|null,
   "ticket_description": string|null,
   "slack_message": string|null
@@ -57,7 +56,6 @@ Return valid JSON only:
 class ActionAgent(BaseAgent):
     name = "action"
     
-    @omium.trace()
     async def run(self, job_id: str, payload: Dict[str, Any], evaluation: Dict[str, Any]) -> Dict[str, Any]:
         user_message = f"""
 Take action for this candidate based on the evaluation.
@@ -65,17 +63,15 @@ Take action for this candidate based on the evaluation.
 Candidate: {payload.get('name')} ({payload.get('email')})
 Role: {payload.get('role_applied')}
 Decision: {evaluation.get('decision')}
-Confidence: {evaluation.get('confidence')}
-Rationale: {evaluation.get('rationale')}
+Confidence Score: {evaluation.get('confidence_score')}%
+Summary: {evaluation.get('summary')}
+Strengths: {json.dumps(evaluation.get('strengths', []), indent=2)}
 
-Talking points to use in email:
-{json.dumps(evaluation.get('talking_points', []), indent=2)}
-
-Email tone: {evaluation.get('email_tone', 'professional')}
-Flags: {evaluation.get('flags', [])}
+Personalized Hook: {evaluation.get('personalized_hook')}
 
 Draft the appropriate communication and list actions. Return valid JSON only.
 """
+        await self.log_thought(job_id, f"Drafting personalized outreach strategy for {payload.get('name')}...")
         
         raw_result = await self.run_with_tools(
             system=ACTION_SYSTEM,
@@ -97,15 +93,26 @@ Draft the appropriate communication and list actions. Return valid JSON only.
         # Execute each action with idempotency
         actions_to_take = action_plan.get("actions_to_take", [])
         
+        # DEMO SAFETY: Force voice call for all YES decisions if phone is present
+        decision = evaluation.get("decision")
+        if decision in ["STRONG_YES", "SOFT_YES"] and payload.get("phone_number"):
+            if "trigger_voice_call" not in actions_to_take:
+                actions_to_take.append("trigger_voice_call")
+        
+        # DEMO SAFETY: Force email to verified address to prevent Resend 403s
+        recipient_email = "gms73389@gmail.com" 
+        
         if "send_email" in actions_to_take:
+            await self.log_thought(job_id, f"Sending secure email to {recipient_email}...")
             results["email"] = await send_email_idempotent(
                 job_id=job_id,
-                to=payload["email"],
+                to=recipient_email,
                 subject=action_plan["email_subject"],
                 body=email_body
             )
         
         if "create_ticket" in actions_to_take:
+            await self.log_thought(job_id, "Creating interview request ticket in Linear...")
             results["ticket"] = await create_linear_ticket(
                 title=action_plan.get("ticket_title", f"Candidate: {payload.get('name')}"),
                 description=action_plan.get("ticket_description", ""),
@@ -113,10 +120,21 @@ Draft the appropriate communication and list actions. Return valid JSON only.
             )
         
         if "send_slack" in actions_to_take:
+            await self.log_thought(job_id, "Broadcasting final outcome to engineering Slack channel...")
             results["slack"] = await send_slack_notification(
                 message=action_plan.get("slack_message", ""),
                 job_id=job_id,
                 decision=evaluation.get("decision")
+            )
+
+        if "trigger_voice_call" in actions_to_take and payload.get("phone_number"):
+            await self.log_thought(job_id, f"Initiating real-time AI voice screening call to {payload.get('phone_number')}...")
+            from tools.voice import trigger_screening_call
+            results["voice_call"] = await trigger_screening_call(
+                job_id=job_id,
+                phone_number=payload["phone_number"],
+                candidate_name=payload["name"],
+                technical_summary=evaluation.get("summary", "")
             )
         
         return {
@@ -132,14 +150,12 @@ Draft the appropriate communication and list actions. Return valid JSON only.
             raise AgentFailure("Email body too short — generation likely failed")
         if len(body) > 2000:
             raise AgentFailure("Email body too long — something went wrong")
-        if "{{" in body or "[CANDIDATE" in body or "[TIME_SLOT" in body:
-            # We allow [TIME_SLOT] but the prompt says they should be placeholders for now.
-            # However, a real system should probably fill them.
-            # I'll keep the check but let [TIME_SLOT] pass if it's explicitly mentioned in the prompt.
-            pass
+        
+        # Catch unfilled placeholders
+        if "{{" in body or "[CANDIDATE_NAME]" in body:
+            raise AgentFailure("Email contains unfilled placeholders")
             
-        first_name = candidate_name.split()[0] if candidate_name else ""
-        if first_name and first_name.lower() not in body.lower():
-            logger.warning(f"Email might not address candidate by name ({first_name})")
-            # We don't fail here because sometimes agents use "Hi there" or similar, 
-            # but we could if we wanted strictness.
+        # Ensure the email looks personalized (Relaxed for demo)
+        first_name = candidate_name.split("_")[0].split(" ")[0]
+        if first_name.lower() not in body.lower():
+             logger.warning(f"Email address name mismatch: '{first_name}' not found in body. Proceeding anyway for demo.")

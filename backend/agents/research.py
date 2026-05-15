@@ -2,26 +2,27 @@
 # Research Agent — web search + enrichment
 
 import json
-import omium
 import logging
 from typing import Dict, Any
 
 from agents.base import BaseAgent, AgentFailure
 from tools.search import tavily_search
-from tools.github import get_github_profile
+from tools.github import get_github_profile, get_github_pr_comments
 
 logger = logging.getLogger(__name__)
 
 RESEARCH_SYSTEM = """
 You are an expert recruiting research agent. Your job is to build a comprehensive 
 intelligence profile on a job candidate using web search and APIs.
+Use GitHub tools to check their profile AND their recent PR comments if a username is provided.
+Analyze their PR comments for technical communication quality.
 
 RULES:
-- Make at most 8 tool calls total. Prioritize highest-signal sources first.
+- Make at most 4 tool calls total. Be extremely selective.
 - If a data source returns nothing, mark it NOT_FOUND. Never hallucinate data.
-- If you find conflicting information, explicitly flag it as CONFLICT.
 - Assign a confidence score (0.0-1.0) to each piece of information.
 - A thin profile (no online presence) is valid. Mark data_quality: "low" and continue.
+- TRUNCATE all tool responses mentally; focus only on top-tier evidence.
 
 You must return a JSON object with this exact structure:
 {
@@ -59,7 +60,10 @@ Output ONLY valid JSON. No markdown code blocks unless you are forced to, but th
 """
 
 class ResearchAgent(BaseAgent):
-    name = "research"
+    def __init__(self):
+        super().__init__()
+        self.name = "research"
+        self.model = "llama-3.1-8b-instant"  # Switching back after Mixtral decommission
     
     TOOLS = [
         {
@@ -89,13 +93,16 @@ class ResearchAgent(BaseAgent):
     
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
         if tool_name == "web_search":
-            return await tavily_search(tool_input["query"])
+            result = await tavily_search(tool_input["query"])
+            # FORCE TRUNCATION: Keep only the first 1200 chars to prevent 413 Payload Too Large
+            return str(result)[:1200] if result else "No results found."
         elif tool_name == "github_profile":
             return await get_github_profile(tool_input["username"])
+        elif tool_name == "get_github_pr_comments":
+            return await get_github_pr_comments(**tool_input)
         else:
             return {"error": f"Unknown tool: {tool_name}"}
     
-    @omium.trace()
     async def run(self, job_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         user_message = f"""
 Research this candidate thoroughly:

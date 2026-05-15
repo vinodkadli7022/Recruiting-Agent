@@ -54,3 +54,36 @@ async def get_github_profile(username: str) -> dict:
         except Exception as e:
             logger.error(f"GitHub profile fetch failed for {username}: {e}")
             return {"found": False, "error": str(e), "username": username}
+
+async def get_github_pr_comments(username: str) -> dict:
+    """
+    Fetches the 10 most recent PR comments made by the user to analyze
+    technical communication and collaboration style.
+    """
+    headers = {}
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"token {settings.GITHUB_TOKEN}"
+        
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # GitHub events API for pull request review comments
+            url = f"https://api.github.com/users/{username}/events/public"
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            events = resp.json()
+            
+            comments = []
+            for event in events:
+                if event["type"] == "PullRequestReviewCommentEvent":
+                    comments.append({
+                        "repo": event["repo"]["name"],
+                        "comment": event["payload"]["comment"]["body"],
+                        "created_at": event["created_at"]
+                    })
+                if len(comments) >= 10:
+                    break
+            
+            return {"found": True, "comments": comments}
+        except Exception as e:
+            logger.error(f"GitHub PR comments fetch failed for {username}: {e}")
+            return {"found": False, "error": str(e)}

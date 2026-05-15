@@ -87,13 +87,15 @@ class Orchestrator:
                 await self._update_status(job_id, JobStatus.COMPLETE)
                 
                 # Final broadcast
-                asyncio.create_task(manager.broadcast({
+                await manager.broadcast({
                     "type": "job_complete",
                     "job_id": job_id,
+                    "status": JobStatus.COMPLETE.value,
                     "decision": evaluation.get("decision"),
+                    "evaluation": evaluation,
                     "outcome": outcome
-                }))
-                
+                })
+
             except Exception as e:
                 logger.error(f"Pipeline failed for job {job_id}: {e}")
                 async with get_db_session() as db:
@@ -105,18 +107,18 @@ class Orchestrator:
                     )
                     await db.commit()
                 
-                # CORRECTION: Alert via Slack on failure
-                asyncio.create_task(send_slack_alert(f"Pipeline failed for job {job_id}: {str(e)}"))
+                # Alert via Slack on failure
+                await send_slack_alert(f"Pipeline failed for job {job_id}: {str(e)}")
                 
                 # Update UI about failure
-                asyncio.create_task(manager.broadcast({
+                await manager.broadcast({
                     "type": "status_update",
                     "job_id": job_id,
                     "status": JobStatus.FAILED.value,
                     "error": str(e)
-                }))
+                })
                 raise
-    
+
     async def _run_with_retry(self, fn: Callable, job_id: str, *args, phase: str, attempt: int = 0):
         try:
             return await fn(job_id, *args)
@@ -127,7 +129,7 @@ class Orchestrator:
                 await asyncio.sleep(wait)
                 return await self._run_with_retry(fn, job_id, *args, phase=phase, attempt=attempt+1)
             raise AgentFailure(f"{phase} failed after 3 attempts: {e}")
-    
+
     async def _update_status(self, job_id: str, status: JobStatus):
         async with get_db_session() as db:
             await db.execute(
@@ -135,9 +137,9 @@ class Orchestrator:
             )
             await db.commit()
         
-        # CORRECTION: Non-blocking broadcast
-        asyncio.create_task(manager.broadcast({
+        # CORRECTION: Await broadcast
+        await manager.broadcast({
             "type": "status_update", 
             "job_id": job_id, 
             "status": status.value
-        }))
+        })

@@ -8,8 +8,10 @@ import time
 import uuid
 import asyncio
 import logging
+from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict
+from sqlalchemy import select
 
 from groq import AsyncGroq
 from core.config import settings
@@ -32,6 +34,41 @@ class BaseAgent(ABC):
 
         self.max_tokens = 4096
         self.max_tool_calls = 10
+
+    async def log_thought(self, job_id: str, thought: str):
+        """Broadcast a live thought from the agent to the UI"""
+        logger.info(f"[{self.name}] THOUGHT: {thought}")
+        if not job_id:
+            return
+            
+        await manager.broadcast({
+            "type": "agent_thought",
+            "job_id": job_id,
+            "agent": self.name,
+            "thought": thought,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        # Persist thought to DB
+        try:
+            from sqlalchemy import update
+            new_thought = {
+                "agent": self.name,
+                "thought": thought,
+                "timestamp": datetime.now().isoformat()
+            }
+            async with get_db_session() as db:
+                # Use a more efficient update if possible, but for demo simple append works
+                from core.models import Job
+                result = await db.execute(select(Job).where(Job.id == job_id))
+                job = result.scalars().first()
+                if job:
+                    current_thoughts = list(job.thoughts or [])
+                    current_thoughts.append(new_thought)
+                    job.thoughts = current_thoughts
+                    await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist thought to DB: {e}")
 
     def parse_json_safely(self, raw: str) -> dict:
         """Strip markdown code blocks and parse JSON."""
@@ -127,7 +164,15 @@ class BaseAgent(ABC):
 
                 # No tool calls → return text content
                 if finish_reason == "stop":
-                    return message.content or ""
+                    content = message.content or ""
+                    # Fallback: Check if model returned tool call JSON in text (common for weak models or 70B glitches)
+                    if "{" in content and "function" in content and "arguments" in content:
+                        logger.warning("Groq fallback: JSON detected in stop message, attempting to parse as tool call.")
+                        # This is an advanced fallback, for now we just fail gracefully if it's empty
+                    
+                    if not content.strip() and not message.tool_calls:
+                        raise AgentFailure("Model returned empty response without tool calls")
+                    return content
 
                 # Tool calls requested
                 if finish_reason == "tool_calls" and message.tool_calls:
@@ -153,6 +198,7 @@ class BaseAgent(ABC):
 
                     for tool_call in message.tool_calls:
                         tool_name = tool_call.function.name
+                        await self.log_thought(job_id, f"Executing tool: {tool_name}...")
                         try:
                             tool_input = json.loads(tool_call.function.arguments)
                         except json.JSONDecodeError:
@@ -161,16 +207,18 @@ class BaseAgent(ABC):
                         try:
                             with tracer.span(f"tool.{tool_name}", job_id=job_id):
                                 result = await tool_executor(tool_name, tool_input)
-                            # Safety trim for 8B context window
+                            
+                            # Strict safety trim for Groq Free Tier TPM limits (6k)
                             content = json.dumps(result)
-                            if len(content) > 2500:
-                                content = content[:2500] + "... [TRUNCATED]"
+                            if len(content) > 1200:
+                                content = content[:1200] + "... [TRUNCATED FOR TPM SAFETY]"
 
                             tool_results.append({
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
                                 "content": content
                             })
+                            await self.log_thought(job_id, f"Tool {tool_name} completed successfully.")
                         except Exception as e:
                             logger.error(f"Tool {tool_name} failed: {e}")
                             tool_results.append({

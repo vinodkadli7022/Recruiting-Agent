@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase
 from datetime import datetime
 import enum
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -61,6 +62,8 @@ class Job(Base):
     thoughts = Column(JSON, default=[])              # Chronological list of agent thoughts
     error = Column(Text)                             # Error message if failed
     trace_id = Column(String)                        # Omium trace ID
+    
+    semantic_embedding = Column(Vector(384))         # RAG Mathematical Fingerprint
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -19,7 +19,11 @@ class Settings(BaseSettings):
     # External Services
     TAVILY_API_KEY: str = ""
     RESEND_API_KEY: str = ""
-    SLACK_WEBHOOK_URL: str = ""
+    SLACK_WEBHOOK_URL: str | None = None
+    
+    # Scheduling
+    CALENDLY_LINK: str = "https://calendly.com/default/interview"
+
     GITHUB_TOKEN: str = ""
     OMIUM_API_KEY: str = ""
     LINEAR_API_KEY: str = ""

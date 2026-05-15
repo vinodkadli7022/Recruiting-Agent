@@ -103,6 +103,14 @@ Draft the appropriate communication and list actions. Return valid JSON only.
         recipient_email = "gms73389@gmail.com" 
         
         if "send_email" in actions_to_take:
+            # --- AUTONOMOUS CALENDAR HANDOFF (The Unicorn Hack) ---
+            if decision == "STRONG_YES":
+                from core.config import settings
+                calendly_link = settings.CALENDLY_LINK
+                email_body += f"\n\nTo fast-track your application, please select an interview time directly on our engineering calendar: {calendly_link}"
+                results["calendar_scheduling"] = {"status": "invite_sent", "link": calendly_link}
+                await self.log_thought(job_id, f"Auto-generating calendar scheduling link for Fast-Track interview...")
+
             await self.log_thought(job_id, f"Sending secure email to {recipient_email}...")
             results["email"] = await send_email_idempotent(
                 job_id=job_id,

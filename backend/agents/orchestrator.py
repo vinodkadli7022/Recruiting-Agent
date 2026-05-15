@@ -57,11 +57,18 @@ class Orchestrator:
                     self.reasoning_agent.run, job_id, payload, research_result, phase="reasoning"
                 )
                 
+                # --- RAG: SEMANTIC VECTORIZATION ---
+                from core.vector import get_embedding
+                semantic_text = f"Role: {payload.get('role_applied', '')}. Summary: {evaluation.get('summary', '')}. Strengths: {' '.join(evaluation.get('strengths', []))}."
+                # Run the embedding generation (blocking call but fast enough for Celery)
+                embedding = get_embedding(semantic_text)
+                
                 async with get_db_session() as db:
                     await db.execute(
                         Job.__table__.update().where(Job.id == job_id).values(
                             evaluation=evaluation,
-                            decision=evaluation.get("decision")
+                            decision=evaluation.get("decision"),
+                            semantic_embedding=embedding
                         )
                     )
                     await db.commit()

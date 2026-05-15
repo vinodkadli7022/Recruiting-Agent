@@ -11,8 +11,51 @@ from sqlalchemy import select
 from core.database import get_db
 from core.models import Job, AgentStep
 
+from pydantic import BaseModel
+
+class SearchQuery(BaseModel):
+    query: str
+    limit: int = 5
+
 router = APIRouter()
 
+@router.post("/search")
+async def semantic_search(
+    body: SearchQuery,
+    db: AsyncSession = Depends(get_db),
+):
+    """Perform Semantic RAG Search using pgvector cosine similarity."""
+    from core.vector import get_embedding
+    
+    # 1. Convert the recruiter's plain-text search into a math vector
+    query_vector = get_embedding(body.query)
+    
+    # 2. Ask Supabase pgvector to find the mathematically closest candidates
+    # .cosine_distance() calculates the angle between vectors
+    result = await db.execute(
+        select(Job, Job.semantic_embedding.cosine_distance(query_vector).label("distance"))
+        .where(Job.semantic_embedding.is_not(None))
+        .order_by(Job.semantic_embedding.cosine_distance(query_vector))
+        .limit(body.limit)
+    )
+    
+    # 3. Format the results
+    search_results = []
+    for row in result.all():
+        job = row[0]
+        distance = row[1]
+        
+        search_results.append({
+            "id": job.id,
+            "job_id": job.id,
+            "payload": job.payload,
+            "role_applied": job.role_applied,
+            "decision": job.decision.value if job.decision else None,
+            "evaluation": job.evaluation,
+            "match_score": round((1 - distance) * 100, 1) # Convert distance to a 0-100% Match Score
+        })
+        
+    return search_results
 
 @router.get("/")
 async def list_jobs(

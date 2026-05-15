@@ -11,6 +11,8 @@ const App = () => {
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [wsStatus, setWsStatus] = useState('disconnected');
   const [callStatus, setCallStatus] = useState('inactive'); // 'inactive', 'loading', 'active'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const ws = useRef(null);
 
   // Auto-select first job
@@ -57,6 +59,28 @@ const App = () => {
       console.error("Vapi Start Failed:", err);
       setCallStatus('inactive');
     }
+  };
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) {
+      fetchJobs(); // Reset to all jobs
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const res = await fetch('http://localhost:8000/jobs/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: searchQuery, limit: 10 })
+      });
+      const data = await res.json();
+      setJobs(data);
+      if (data.length > 0) setSelectedJobId(data[0].id);
+    } catch (err) {
+      console.error("Search failed:", err);
+    }
+    setIsSearching(false);
   };
 
   const fetchJobs = async () => {
@@ -162,6 +186,21 @@ const App = () => {
             </p>
           </div>
 
+          <div style={{ padding: '0 24px 16px' }}>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Semantic RAG Search..."
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.8rem', outline: 'none' }}
+              />
+              <button type="submit" disabled={isSearching} style={{ padding: '8px 12px', borderRadius: '8px', background: 'var(--primary)', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                {isSearching ? '...' : '🔍'}
+              </button>
+            </form>
+          </div>
+
           <div style={{ padding: '0 12px' }}>
             {jobs.map(job => (
               <div 
@@ -172,10 +211,17 @@ const App = () => {
                   setSelectedJobId(job.id);
                 }}
               >
-                <div className="sidebar-info">
-                  <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
-                    {job.payload?.name || 'Loading...'}
-                  </span>
+                <div className="sidebar-info" style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
+                      {job.payload?.name || 'Loading...'}
+                    </span>
+                    {job.match_score && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--success)' }}>
+                        {job.match_score}% Match
+                      </span>
+                    )}
+                  </div>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '2px' }}>
                     {job.role_applied || 'Unknown Role'}
                   </p>
@@ -207,6 +253,16 @@ const App = () => {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '12px' }}>
+                {/* 🦄 THE BILLION DOLLAR HACK: Calendar Handoff Badge */}
+                {selectedJob.decision === 'STRONG_YES' && (
+                  <div className="glass-card calendar-badge" style={{ padding: '12px 24px', textAlign: 'center', background: 'rgba(52, 211, 153, 0.1)', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 800 }}>Autonomously Handled</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      📅 Interview Scheduled
+                    </div>
+                  </div>
+                )}
+
                 {(selectedJob.decision === 'STRONG_YES' || selectedJob.decision === 'SOFT_YES') && (
                   <button 
                     onClick={() => handleTalkToAI(selectedJob)}

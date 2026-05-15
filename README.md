@@ -1,21 +1,21 @@
-# 🤖 Autonomous Recruiting Pipeline (Genius Recruiter)
+# 🤖 GeniusAI: Autonomous Recruiting Pipeline
 
-[![Omium Traced](https://img.shields.io/badge/Omium-Traced-blueviolet?style=for-the-badge)](https://omium.ai)
 [![Database: Supabase](https://img.shields.io/badge/Database-Supabase-green?style=for-the-badge)](https://supabase.com)
 [![AI: Groq Llama 3](https://img.shields.io/badge/AI-Groq_Llama_3-orange?style=for-the-badge)](https://groq.com)
+[![Voice: Vapi](https://img.shields.io/badge/Voice_AI-Vapi.ai-purple?style=for-the-badge)](https://vapi.ai)
 
-A production-grade, multi-agent autonomous pipeline that handles candidate research, evaluation, and outreach end-to-end. Built for high-scale recruiting teams who need deep reasoning and verifiable traces.
+A production-grade, multi-agent autonomous pipeline that handles candidate research, evaluation, and outreach end-to-end. Built for high-scale recruiting teams who need deep reasoning, real-time observability, and **Live AI Voice Screening**.
 
 ---
 
-##  Key Features
+## 🌟 Hackathon-Ready Features
 
-- **Multi-Agent Collaboration**: Three specialized agents (Research, Reasoning, Action) working in tandem.
-- **Deep GitHub Analysis**: Automatically pulls and analyzes a candidate's top repositories to verify technical depth.
-- **Real-World Side Effects**: Sends personalized emails via **Resend** and notifications via **Slack**.
-- **Production Architecture**: Built on **FastAPI**, **Celery**, and **Redis** for asynchronous, long-running task handling.
-- **Full Observability**: Integrated with the **Omium SDK** for real-time AI tracing and decision transparency.
-- **Cloud Persistence**: Powered by **Supabase (PostgreSQL)** for reliable, scalable data storage.
+- **🎙️ Interactive Voice AI (Vapi.ai)**: Integrated Web-Call SDK allowing recruiters to speak live with an AI Assistant that has been dynamically injected with the candidate's scraped GitHub technical profile.
+- **🛡️ Smart Gatekeeper Logic**: The dashboard actively filters candidates. The "Talk to AI" option only unlocks if the AI Reasoning Agent determines the candidate is a `STRONG_YES` or `SOFT_YES`.
+- **🕵️‍♂️ Multi-Agent Collaboration**: Three specialized agents (Research, Reasoning, Action) working in tandem via Celery queues.
+- **🥗 "Token Diet" Research**: Optimized GitHub API scraping logic that extracts high-value technical context while staying strictly under LLM rate limits.
+- **⚡ Real-Time Dashboard**: A premium, glassmorphism UI built in React/Vite that streams the AI's "internal monologue" and decisions live via WebSockets.
+- **🚀 One-Click Launch**: Includes a `start_everything.ps1` script to instantly boot the Backend, Frontend, and Celery Workers simultaneously for flawless live demos.
 
 ---
 
@@ -23,71 +23,45 @@ A production-grade, multi-agent autonomous pipeline that handles candidate resea
 
 | Layer | Technology |
 | :--- | :--- |
-| **Backend** | Python, FastAPI, Celery, SQLAlchemy |
-| **Frontend** | React, Vite, TailwindCSS (Vanilla Optimized) |
-| **AI Models** | Groq (Llama 3.1 8B / 70B) |
+| **Backend** | Python, FastAPI, Celery, SQLAlchemy, WebSockets |
+| **Frontend** | React, Vite, Vanilla CSS (Glassmorphism & Micro-animations) |
+| **AI Models** | Groq (Llama-3.1-8b-instant / 70b-versatile) |
 | **Database** | Supabase (PostgreSQL), Redis (Upstash) |
-| **Observability** | Omium SDK |
-| **Tools** | Tavily (Search), GitHub API, Resend (Email), Slack API |
+| **Voice AI** | Vapi Web SDK |
+| **Tools** | Tavily (Search), GitHub API, Resend (Email Outreach) |
 
 ---
 
-##  Getting Started
+## 🚀 Quick Start (Demo Mode)
 
-### 1. Prerequisites
-- Python 3.10+
-- Node.js 18+
-- Redis (Local or Upstash)
+The fastest way to launch the entire stack for a live demo:
 
-### 2. Backend Setup
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+1. **Configure Environment**: Ensure your `.env` is populated in the `/backend` folder (Groq, Vapi, Supabase, Redis).
+2. **Run the Master Script**: 
+   Right-click `start_everything.ps1` in the root folder and select **"Run with PowerShell"**.
+   *(This will automatically launch the Backend, Frontend, and Celery Workers in separate windows).*
+3. **Open Dashboard**: Navigate to `http://localhost:3000`.
 
-### 3. Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 4. Environment Variables
-Create a `.env` file in the `backend/` directory based on `.env.example`:
-```env
-GROQ_API_KEY=your_key
-TAVILY_API_KEY=your_key
-GITHUB_TOKEN=your_token
-RESEND_API_KEY=your_key
-SLACK_WEBHOOK_URL=your_url
-OMIUM_API_KEY=your_key
-DATABASE_URL=postgresql+asyncpg://... (Supabase)
-REDIS_URL=rediss://... (Upstash)
-```
+### 🎯 How to Trigger a Candidate Evaluation
+1. Open `backend/trigger_payload.json` and customize the candidate's details.
+2. In a new terminal inside the `/backend` folder, run:
+   ```bash
+   python trigger_demo.py
+   ```
+3. Watch the dashboard populate live!
 
 ---
 
-##  Agent Architecture
+## 🧠 Agent Architecture
 
-1. **Research Agent**: Uses Tavily and GitHub APIs to build a 360° profile of the candidate.
-2. **Reasoning Agent**: Evaluates the candidate against a custom Job Description using deep LLM reflection.
-3. **Action Agent**: Executes final decisions—drafting personalized outreach or filing internal reports.
-
----
-
-##  Webhook Trigger
-The pipeline is triggered via a POST request to `/webhook/applicant`:
-```json
-{
-  "name": "Candidate Name",
-  "email": "candidate@example.com",
-  "role_applied": "Software Engineer",
-  "github_handle": "username"
-}
-```
+1. **Research Agent**: Uses Tavily and GitHub APIs to build a 360° profile of the candidate, optimizing for token limits.
+2. **Reasoning Agent**: Evaluates the candidate against a custom Job Description using deep LLM reflection and outputs a scorecard.
+3. **Action Agent**: Executes final decisions—drafting personalized outreach emails and initiating the Voice AI handoff logic.
 
 ---
 
-
+## 🤝 The "Talk to AI" Workflow
+1. The Research Agent completes its GitHub analysis.
+2. If the Reasoning Agent approves the candidate, the dashboard unlocks the **🎙️ Talk to AI** button.
+3. Clicking the button initiates a browser-based Vapi Web-Call.
+4. The candidate's `technical_summary` is injected into the Vapi Assistant's context, allowing for a highly specific, technical voice interview.

@@ -63,7 +63,6 @@ class ResearchAgent(BaseAgent):
     def __init__(self):
         super().__init__()
         self.name = "research"
-        self.model = "llama-3.1-8b-instant"  # Switching back after Mixtral decommission
     
     TOOLS = [
         {

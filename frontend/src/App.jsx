@@ -125,11 +125,6 @@ const App = () => {
           };
           newJobs[index] = updatedJob;
 
-          // If this is the currently viewed job, update the view state too
-          if (jobId === selectedJobId) {
-            setSelectedJob(updatedJob);
-          }
-          
           return newJobs;
         });
       }

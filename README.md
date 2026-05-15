@@ -8,7 +8,7 @@ A production-grade, multi-agent autonomous pipeline that handles candidate resea
 
 ---
 
-## 🌟 Key Features
+##  Key Features
 
 - **Multi-Agent Collaboration**: Three specialized agents (Research, Reasoning, Action) working in tandem.
 - **Deep GitHub Analysis**: Automatically pulls and analyzes a candidate's top repositories to verify technical depth.
@@ -32,7 +32,7 @@ A production-grade, multi-agent autonomous pipeline that handles candidate resea
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### 1. Prerequisites
 - Python 3.10+
@@ -69,7 +69,7 @@ REDIS_URL=rediss://... (Upstash)
 
 ---
 
-## 🧠 Agent Architecture
+##  Agent Architecture
 
 1. **Research Agent**: Uses Tavily and GitHub APIs to build a 360° profile of the candidate.
 2. **Reasoning Agent**: Evaluates the candidate against a custom Job Description using deep LLM reflection.
@@ -77,7 +77,7 @@ REDIS_URL=rediss://... (Upstash)
 
 ---
 
-## 📡 Webhook Trigger
+##  Webhook Trigger
 The pipeline is triggered via a POST request to `/webhook/applicant`:
 ```json
 {
@@ -90,8 +90,4 @@ The pipeline is triggered via a POST request to `/webhook/applicant`:
 
 ---
 
-## 🏆 Hackathon Submission Details
-- **Autonomous**: Yes (End-to-End without human steering)
-- **Long-Running**: Yes (Celery background tasks)
-- **Traced**: Yes (Verified via Omium)
-- **Persistence**: Yes (Supabase Cloud Postgres)
+

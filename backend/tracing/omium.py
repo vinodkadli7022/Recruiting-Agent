@@ -36,19 +36,17 @@ class OmiumTracer:
 
     def configure(self, api_key: str):
         """Initialize the official Omium SDK."""
-        if not api_key or "REPLACE_ME" in api_key:
-            return
-        
         if OMIUM_AVAILABLE:
             try:
-                # Initialize with the key directly
-                omium.init(api_key=api_key)
+                # The SDK reads OMIUM_API_KEY from environment automatically
+                # but we can also pass it explicitly if needed.
+                omium.init(project="Recruiting-Agent", api_key=api_key)
                 self._initialized = True
-                logger.info("[Omium] Official SDK initialized with API Key.")
+                logger.info("[Omium] Official SDK initialized for project 'Recruiting-Agent'.")
             except Exception as e:
                 logger.error(f"[Omium] Failed to initialize official SDK: {e}")
         else:
-            logger.info("[Omium] Tracing is running in mock mode. SDK will be injected later.")
+            logger.info("[Omium] Tracing is running in mock mode. SDK not installed.")
 
     def start_trace(self, name: str, metadata: dict = None) -> str:
         """Bridge for starting a trace."""

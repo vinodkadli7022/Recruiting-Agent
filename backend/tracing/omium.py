@@ -53,11 +53,11 @@ class OmiumTracer:
         """Context manager bridging to official Omium tracing with parent linking."""
         if self._initialized and OMIUM_AVAILABLE:
             try:
-                # Pass the parent_id to the SDK if supported
-                with omium.trace(name, parent_id=parent_id):
+                # Use omium.span for context blocks
+                with omium.span(name):
                     yield
-            except Exception:
-                # Fallback if their context manager has a different signature
+            except (AttributeError, TypeError):
+                # Fallback if span is not available
                 yield
         else:
             yield
@@ -68,9 +68,10 @@ class OmiumTracer:
         trace_id = self.start_trace(name, kwargs)
         if self._initialized and OMIUM_AVAILABLE:
             try:
-                with omium.trace(name):
+                # Use omium.span for the root trace context as well
+                with omium.span(name):
                     yield trace_id
-            except Exception:
+            except (AttributeError, TypeError):
                 yield trace_id
         else:
             yield trace_id

@@ -53,16 +53,16 @@ class OmiumTracer:
     def start_trace(self, name: str, metadata: dict = None) -> str:
         """Bridge for starting a trace."""
         logger.debug(f"[Omium] start_trace called: {name}")
-        return "official_trace_id"
+        # In a real SDK, this would return a unique trace/span ID
+        return f"trace_{uuid.uuid4().hex[:8]}"
 
     @contextmanager
-    def span(self, name: str, **kwargs):
-        """Context manager bridging to official Omium tracing."""
-        # The official SDK uses omium.trace as a decorator or context manager
-        # based on version. We'll use a safe approach here.
+    def span(self, name: str, parent_id: str = None, **kwargs):
+        """Context manager bridging to official Omium tracing with parent linking."""
         if self._initialized and OMIUM_AVAILABLE:
             try:
-                with omium.trace(name):
+                # Pass the parent_id to the SDK if supported
+                with omium.trace(name, parent_id=parent_id):
                     yield
             except Exception:
                 # Fallback if their context manager has a different signature
@@ -73,14 +73,15 @@ class OmiumTracer:
     @contextmanager
     def trace(self, name: str, **kwargs):
         """Context manager bridging to official Omium tracing."""
+        trace_id = self.start_trace(name, kwargs)
         if self._initialized and OMIUM_AVAILABLE:
             try:
                 with omium.trace(name):
-                    yield
+                    yield trace_id
             except Exception:
-                yield
+                yield trace_id
         else:
-            yield
+            yield trace_id
 
 
 # Singleton

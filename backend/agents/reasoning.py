@@ -50,7 +50,7 @@ We value: High-trajectory talent who can build clean, working prototypes and has
 class ReasoningAgent(BaseAgent):
     name = "reasoning"
     
-    async def run(self, job_id: str, payload: Dict[str, Any], research: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, job_id: str, payload: Dict[str, Any], research: Dict[str, Any], parent_trace_id: str = None) -> Dict[str, Any]:
         await self.log_thought(job_id, "Analyzing research data and GitHub activity...")
         await self.log_thought(job_id, f"Cross-referencing candidate skills with Job Description: {payload.get('role_applied')}")
         
@@ -81,7 +81,8 @@ Evaluate thoroughly. Return valid JSON only.
             tools=[],  # Reasoning agent uses no tools — pure reasoning
             tool_executor=None,
             job_id=job_id,
-            span_name="reasoning.evaluate"
+            span_name="reasoning.evaluate",
+            parent_trace_id=parent_trace_id
         )
         
         await self.log_thought(job_id, "Finalizing executive summary and hiring decision.")

@@ -98,7 +98,8 @@ class BaseAgent(ABC):
         tools: list[dict],
         tool_executor,
         job_id: str,
-        span_name: str
+        span_name: str,
+        parent_trace_id: str = None
     ) -> str:
         """
         Groq-compatible agent loop.
@@ -136,7 +137,7 @@ class BaseAgent(ABC):
             api_params["tools"] = formatted_tools
             api_params["tool_choice"] = "auto"
 
-        with tracer.span(span_name, job_id=job_id):
+        with tracer.span(span_name, parent_id=parent_trace_id, job_id=job_id):
             while tool_call_count < self.max_tool_calls:
                 start = time.time()
 
@@ -205,7 +206,7 @@ class BaseAgent(ABC):
                             tool_input = {}
                         
                         try:
-                            with tracer.span(f"tool.{tool_name}", job_id=job_id):
+                            with tracer.span(f"tool.{tool_name}", parent_id=parent_trace_id, job_id=job_id):
                                 result = await tool_executor(tool_name, tool_input)
                             
                             # Strict safety trim for Groq Free Tier TPM limits (6k)

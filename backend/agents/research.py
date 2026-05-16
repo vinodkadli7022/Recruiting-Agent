@@ -102,7 +102,7 @@ class ResearchAgent(BaseAgent):
         else:
             return {"error": f"Unknown tool: {tool_name}"}
     
-    async def run(self, job_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, job_id: str, payload: Dict[str, Any], parent_trace_id: str = None) -> Dict[str, Any]:
         user_message = f"""
 Research this candidate thoroughly:
 
@@ -125,7 +125,8 @@ Build a comprehensive profile. Return valid JSON only.
             tools=self.TOOLS,
             tool_executor=self.execute_tool,
             job_id=job_id,
-            span_name="research.enrich"
+            span_name="research.enrich",
+            parent_trace_id=parent_trace_id
         )
         
         # Parse and validate the result using the helper

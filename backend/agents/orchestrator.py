@@ -37,12 +37,12 @@ class Orchestrator:
                 logger.error(f"Job {job_id} not found in database.")
                 return
 
-        with tracer.trace("pipeline.full_run", job_id=job_id):
+        with tracer.trace("pipeline.full_run", job_id=job_id) as trace_id:
             try:
                 # PHASE 1: Research
                 await self._update_status(job_id, JobStatus.RESEARCHING)
                 research_result = await self._run_with_retry(
-                    self.research_agent.run, job_id, payload, phase="research"
+                    self.research_agent.run, job_id, payload, phase="research", parent_trace_id=trace_id
                 )
                 
                 async with get_db_session() as db:
@@ -54,7 +54,7 @@ class Orchestrator:
                 # PHASE 2: Reasoning
                 await self._update_status(job_id, JobStatus.REASONING)
                 evaluation = await self._run_with_retry(
-                    self.reasoning_agent.run, job_id, payload, research_result, phase="reasoning"
+                    self.reasoning_agent.run, job_id, payload, research_result, phase="reasoning", parent_trace_id=trace_id
                 )
                 
                 # --- RAG: SEMANTIC VECTORIZATION ---
@@ -76,7 +76,7 @@ class Orchestrator:
                 # PHASE 3: Action
                 await self._update_status(job_id, JobStatus.ACTING)
                 outcome = await self._run_with_retry(
-                    self.action_agent.run, job_id, payload, evaluation, phase="action"
+                    self.action_agent.run, job_id, payload, evaluation, phase="action", parent_trace_id=trace_id
                 )
                 
                 # Phase 4: Complete
@@ -126,15 +126,15 @@ class Orchestrator:
                 })
                 raise
 
-    async def _run_with_retry(self, fn: Callable, job_id: str, *args, phase: str, attempt: int = 0):
+    async def _run_with_retry(self, fn: Callable, job_id: str, *args, phase: str, attempt: int = 0, **kwargs):
         try:
-            return await fn(job_id, *args)
+            return await fn(job_id, *args, **kwargs)
         except AgentFailure as e:
             if attempt < 2:  # Max 2 retries
                 wait = 2 ** attempt  # Exponential backoff: 1s, 2s
                 logger.warning(f"Phase {phase} failed for job {job_id}, retrying in {wait}s... Error: {e}")
                 await asyncio.sleep(wait)
-                return await self._run_with_retry(fn, job_id, *args, phase=phase, attempt=attempt+1)
+                return await self._run_with_retry(fn, job_id, *args, phase=phase, attempt=attempt+1, **kwargs)
             raise AgentFailure(f"{phase} failed after 3 attempts: {e}")
 
     async def _update_status(self, job_id: str, status: JobStatus):

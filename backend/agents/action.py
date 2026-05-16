@@ -56,7 +56,7 @@ Return valid JSON only:
 class ActionAgent(BaseAgent):
     name = "action"
     
-    async def run(self, job_id: str, payload: Dict[str, Any], evaluation: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, job_id: str, payload: Dict[str, Any], evaluation: Dict[str, Any], parent_trace_id: str = None) -> Dict[str, Any]:
         user_message = f"""
 Take action for this candidate based on the evaluation.
 
@@ -79,7 +79,8 @@ Draft the appropriate communication and list actions. Return valid JSON only.
             tools=[],
             tool_executor=None,
             job_id=job_id,
-            span_name="action.draft"
+            span_name="action.draft",
+            parent_trace_id=parent_trace_id
         )
         
         action_plan = self._extract_json(raw_result)

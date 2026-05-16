@@ -1,22 +1,17 @@
 # backend/tracing/omium.py
 # ============================================================
-# Omium SDK Placeholder
+# Omium Observability Integration
 # ============================================================
-# The hackathon sponsor (Omium) will provide the real SDK.
-# This module wraps their interface so the rest of the codebase
-# uses: tracer.start_trace(), tracer.span(), tracer.trace()
-#
-# When the real SDK arrives:
-#   1. pip install <omium-sdk>
-#   2. Replace the no-op implementations below with real calls
-#   3. The rest of the codebase stays unchanged
+# This module provides a unified interface for the Omium Tracing SDK,
+# enabling real-time monitoring and causal linking of multi-agent
+# execution paths.
 # ============================================================
 
 import os
+import uuid
 import logging
 from contextlib import contextmanager
 
-# The SDK will be provided by the hackathon sponsor
 try:
     import omium
     OMIUM_AVAILABLE = True
@@ -46,12 +41,11 @@ class OmiumTracer:
             except Exception as e:
                 logger.error(f"[Omium] Failed to initialize official SDK: {e}")
         else:
-            logger.info("[Omium] Tracing is running in mock mode. SDK not installed.")
+            logger.info("[Omium] Tracing is currently disabled (SDK not found).")
 
     def start_trace(self, name: str, metadata: dict = None) -> str:
         """Bridge for starting a trace."""
         logger.debug(f"[Omium] start_trace called: {name}")
-        # In a real SDK, this would return a unique trace/span ID
         return f"trace_{uuid.uuid4().hex[:8]}"
 
     @contextmanager

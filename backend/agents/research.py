@@ -91,16 +91,25 @@ class ResearchAgent(BaseAgent):
     ]
     
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+        result = {}
         if tool_name == "web_search":
             result = await tavily_search(tool_input["query"])
-            # FORCE TRUNCATION: Keep only the first 1200 chars to prevent 413 Payload Too Large
-            return str(result)[:1200] if result else "No results found."
         elif tool_name == "github_profile":
-            return await get_github_profile(tool_input["username"])
+            result = await get_github_profile(tool_input["username"])
         elif tool_name == "get_github_pr_comments":
-            return await get_github_pr_comments(**tool_input)
+            result = await get_github_pr_comments(**tool_input)
         else:
             return {"error": f"Unknown tool: {tool_name}"}
+            
+        # SAFETY VALVE: Groq context limits
+        # Force string conversion and truncate to ~3000 chars (approx 1000 tokens)
+        # This prevents 413 "Request too large" errors if a profile is massive.
+        result_str = str(result)
+        if len(result_str) > 3000:
+            logger.warning(f"Truncating tool result for {tool_name} (Length: {len(result_str)})")
+            return result_str[:3000] + "... [TRUNCATED FOR CONTEXT SAFETY]"
+            
+        return result
     
     async def run(self, job_id: str, payload: Dict[str, Any], parent_trace_id: str = None) -> Dict[str, Any]:
         user_message = f"""

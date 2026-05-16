@@ -1,15 +1,6 @@
 # backend/celery_app.py
 # ============================================================
-# STEP 6 (stub): Celery Worker Configuration
-# ============================================================
-# This file is a STUB so that main.py + webhooks.py can import
-# run_pipeline_task without crashing. Full implementation comes
-# in the next build step.
-#
-# Corrections applied:
-#   1. task_acks_late=True — don't ack until complete
-#   2. task_reject_on_worker_lost=True — re-queue if worker crashes
-#   3. Async DB usage inside task (via get_db_session context manager)
+# Celery Worker Configuration
 # ============================================================
 
 import os
@@ -52,9 +43,6 @@ def run_pipeline_task(self, job_id: str, payload: dict):
     The main Celery task. Runs the full pipeline for one job.
     Retries up to 3 times with exponential backoff on failure.
     Survives worker restarts because task_acks_late=True.
-
-    NOTE: Full orchestrator wiring happens in the next build step.
-    For now this is a stub that logs receipt.
     """
     import asyncio
     import logging

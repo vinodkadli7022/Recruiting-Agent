@@ -13,9 +13,15 @@
 # ============================================================
 
 import os
-import omium
 import logging
 from contextlib import contextmanager
+
+# The SDK will be provided by the hackathon sponsor
+try:
+    import omium
+    OMIUM_AVAILABLE = True
+except ImportError:
+    OMIUM_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +39,16 @@ class OmiumTracer:
         if not api_key or "REPLACE_ME" in api_key:
             return
         
-        try:
-            # Initialize with the key directly
-            omium.init(api_key=api_key)
-            self._initialized = True
-            logger.info("[Omium] Official SDK initialized with API Key.")
-        except Exception as e:
-            logger.error(f"[Omium] Failed to initialize official SDK: {e}")
+        if OMIUM_AVAILABLE:
+            try:
+                # Initialize with the key directly
+                omium.init(api_key=api_key)
+                self._initialized = True
+                logger.info("[Omium] Official SDK initialized with API Key.")
+            except Exception as e:
+                logger.error(f"[Omium] Failed to initialize official SDK: {e}")
+        else:
+            logger.info("[Omium] Tracing is running in mock mode. SDK will be injected later.")
 
     def start_trace(self, name: str, metadata: dict = None) -> str:
         """Bridge for starting a trace."""
@@ -51,7 +60,7 @@ class OmiumTracer:
         """Context manager bridging to official Omium tracing."""
         # The official SDK uses omium.trace as a decorator or context manager
         # based on version. We'll use a safe approach here.
-        if self._initialized:
+        if self._initialized and OMIUM_AVAILABLE:
             try:
                 with omium.trace(name):
                     yield
@@ -64,7 +73,7 @@ class OmiumTracer:
     @contextmanager
     def trace(self, name: str, **kwargs):
         """Context manager bridging to official Omium tracing."""
-        if self._initialized:
+        if self._initialized and OMIUM_AVAILABLE:
             try:
                 with omium.trace(name):
                     yield

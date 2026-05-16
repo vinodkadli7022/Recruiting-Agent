@@ -68,22 +68,22 @@ async def receive_applicant(
     payload_dict = await request.json()
     payload = ApplicantPayload(**payload_dict)
 
-    # --- DEDUP DISABLED FOR DEMO ---
-    # one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-    # result = await db.execute(
-    #     select(Job).where(
-    #         Job.email == payload.email,
-    #         Job.role_applied == payload.role_applied,
-    #         Job.created_at > one_hour_ago,
-    #     ).order_by(Job.created_at.desc())
-    # )
-    # existing = result.scalars().first()
-    # if existing:
-    #     return {
-    #         "job_id": existing.id,
-    #         "status": "deduplicated",
-    #         "message": "Duplicate submission within 1 hour",
-    #     }
+    # --- DEDUP ENABLED ---
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    result = await db.execute(
+        select(Job).where(
+            Job.email == payload.email,
+            Job.role_applied == payload.role_applied,
+            Job.created_at > one_hour_ago,
+        ).order_by(Job.created_at.desc())
+    )
+    existing = result.scalars().first()
+    if existing:
+        return {
+            "job_id": existing.id,
+            "status": "deduplicated",
+            "message": "Duplicate submission within 1 hour",
+        }
 
     # Create job record immediately
     job_id = str(uuid.uuid4())

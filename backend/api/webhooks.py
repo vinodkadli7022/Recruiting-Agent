@@ -1,12 +1,6 @@
 # backend/api/webhooks.py
 # ============================================================
-# STEP 5 (partially): Webhook Endpoint — the trigger
-# ============================================================
-# Corrections applied:
-#   1. ASYNC DATABASE — uses AsyncSession via Depends(get_db), not next(get_db())
-#   2. SIMPLIFIED DEDUP — queries explicit Job.email + Job.role_applied columns
-#      instead of JSON-path tricks that break on SQLite
-#   3. NON-BLOCKING BROADCAST — uses asyncio.create_task() for WS messages
+# Webhook API Endpoints
 # ============================================================
 
 from fastapi import APIRouter, HTTPException, Header, Request, Depends

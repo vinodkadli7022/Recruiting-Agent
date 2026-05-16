@@ -1,15 +1,12 @@
 # backend/core/database.py
 # ============================================================
-# ASYNC DATABASE REWRITE — Critical correction from original prompt
+# Database Configuration and Connectivity
 # ============================================================
-# The original code used synchronous `next(get_db())` inside async
-# functions which leaks connections and crashes under load.
-#
 # This module provides:
 #   - async_engine: AsyncEngine for SQLAlchemy
 #   - AsyncSessionLocal: async session factory
-#   - get_db(): async generator for FastAPI dependency injection
-#   - get_db_session(): async context manager for use in agents/workers
+#   - get_db: async generator for FastAPI dependency injection
+#   - get_db_session: context manager for non-API contexts
 # ============================================================
 
 from sqlalchemy.ext.asyncio import (

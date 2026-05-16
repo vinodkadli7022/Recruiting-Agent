@@ -1,12 +1,9 @@
 # backend/core/models.py
 # ============================================================
-# STEP 3: Database Models — with corrections applied
+# Database Domain Models
 # ============================================================
-# Changes from original prompt:
-#   1. Added explicit `email` and `role_applied` columns to Job
-#      for simplified deduplication (no JSON-path tricks on SQLite)
-#   2. Added UniqueConstraint on ActionLog.idempotency_key
-#   3. Using datetime.utcnow via server_default where possible
+# This module defines the SQLAlchemy models for the recruiting pipeline,
+# including Job Tracking, Evaluation Results, and Action Logs.
 # ============================================================
 
 from sqlalchemy import (

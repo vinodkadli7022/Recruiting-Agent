@@ -1,11 +1,6 @@
 # backend/main.py
 # ============================================================
-# STEP 4: FastAPI Main App Entry Point
-# ============================================================
-# Corrections applied:
-#   1. Uses async engine for table creation (run_sync)
-#   2. Imports all routers including the missing api/jobs.py
-#   3. Adds pydantic-settings to handle .env loading
+# Main Application Entry Point
 # ============================================================
 
 import os

@@ -1,7 +1,6 @@
 # backend/api/jobs.py
 # ============================================================
-# Missing file from original prompt — implemented now
-# GET /jobs and GET /jobs/{id} endpoints
+# Job Management API Endpoints
 # ============================================================
 
 from fastapi import APIRouter, Depends, HTTPException

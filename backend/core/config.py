@@ -1,5 +1,5 @@
 # backend/core/config.py
-# STEP 2: All environment variables centralized here
+# Centralized environment and application settings.
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 

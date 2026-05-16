@@ -1,6 +1,6 @@
 # backend/agents/base.py
 # ============================================================
-# STEP 5: Base Agent Class — GROQ REWRITE
+# Base Agent Core Module
 # ============================================================
 
 import json

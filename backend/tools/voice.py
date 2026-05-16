@@ -54,7 +54,7 @@ async def trigger_screening_call(job_id: str, phone_number: str, candidate_name:
             "assistantId": settings.VAPI_ASSISTANT_ID,
             "phoneNumberId": settings.VAPI_PHONE_NUMBER_ID,
             "customer": {"number": phone_number, "name": candidate_name},
-            "assistantOverride": {
+            "assistantOverrides": {
                 "variableValues": {
                     "tech_context": technical_summary,
                     "candidate_name": candidate_name

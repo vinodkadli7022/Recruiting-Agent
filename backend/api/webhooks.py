@@ -52,12 +52,9 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
 
 
 def _dispatch_pipeline(job_id: str, payload: dict):
-    """Fire-and-forget Celery dispatch. Job is already in DB regardless of Redis state."""
-    try:
-        from celery_app import run_pipeline_task
-        run_pipeline_task.delay(job_id, payload)
-    except Exception as e:
-        logger.warning(f"Celery dispatch failed (Redis down?): {e}. Job {job_id} saved to DB.")
+    """Fire-and-forget background execution."""
+    from agents.orchestrator import Orchestrator
+    asyncio.create_task(Orchestrator().dispatch(job_id, payload))
 
 
 @router.post("/applicant", status_code=202)

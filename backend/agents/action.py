@@ -112,7 +112,6 @@ Draft the appropriate communication and list actions. Return valid JSON only.
         if "send_email" in actions_to_take:
             # --- AUTONOMOUS CALENDAR HANDOFF ---
             if decision == "STRONG_YES":
-                from core.config import settings
                 calendly_link = settings.CALENDLY_LINK
                 email_body += f"\n\nTo fast-track your application, please select an interview time directly on our engineering calendar: {calendly_link}"
                 results["calendar_scheduling"] = {"status": "prepared" if settings.DRY_RUN else "invite_sent", "link": calendly_link}

@@ -121,11 +121,9 @@ async def review_job(
     job.reviewed_by   = body.reviewer
     await db.commit()
 
-    try:
-        from celery_app import run_approved_action_task
-        run_approved_action_task.delay(job_id)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Could not queue approved action: {exc}")
+    import asyncio
+    from agents.orchestrator import Orchestrator
+    asyncio.create_task(Orchestrator().execute_approved_action(job_id, job.payload, job.evaluation, job.trace_id))
 
     return {
         "job_id":  job_id,

@@ -13,30 +13,36 @@ class Settings(BaseSettings):
     # AI / LLM
     ANTHROPIC_API_KEY: str = ""
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile" # Default model
-
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     # External Services
     TAVILY_API_KEY: str = ""
     RESEND_API_KEY: str = ""
     SLACK_WEBHOOK_URL: str | None = None
-    
+
     # Scheduling
     CALENDLY_LINK: str = "https://calendly.com/default/interview"
 
     GITHUB_TOKEN: str = ""
     OMIUM_API_KEY: str = ""
     LINEAR_API_KEY: str = ""
-    
-    # AI Voice (Vapi.ai)
+
+    # AI Voice (Vapi.ai) — keys stay in backend only, never in frontend source
     VAPI_API_KEY: str = ""
     VAPI_ASSISTANT_ID: str = ""
     VAPI_PHONE_NUMBER_ID: str = ""
+    VAPI_WEB_PUBLIC_KEY: str = ""
 
     # Security
-    WEBHOOK_SECRET: str = "change-this-secret-now"
+    WEBHOOK_SECRET: str = ""
+    REQUIRE_WEBHOOK_SIGNATURE: bool = True
 
-    # Database — uses async SQLite by default, swap to asyncpg+postgresql in prod
+    # Safety controls — safe defaults, must be explicitly disabled in .env
+    HUMAN_REVIEW_REQUIRED: bool = True        # AI pauses for recruiter approval before any outreach
+    DRY_RUN: bool = True                      # Emails/tickets are prepared but NOT sent until False
+    ALLOW_AUTOMATED_VOICE_CALLS: bool = False  # Voice calls require explicit enablement + consent
+
+    # Database — SQLite for local demo; set to asyncpg+postgresql for production
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/pipeline.db"
 
     # Redis (Celery broker)

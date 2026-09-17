@@ -10,9 +10,9 @@ const WS_BASE = import.meta.env.VITE_WS_URL || (
     : 'ws://localhost:8000/ws'
 );
 
-// LIVE PUBLIC KEY FROM VAPI DASHBOARD
-const VAPI_PUBLIC_KEY = "4fff1917-d451-4051-9c05-cece760a6a5b";
-const vapi = new Vapi(VAPI_PUBLIC_KEY);
+// VAPI CONFIGURATION LOADED FROM ENVIRONMENT (NO KEYS IN CLIENT CODE)
+const VAPI_PUBLIC_KEY = import.meta.env.VITE_VAPI_PUBLIC_KEY || "";
+const vapi = VAPI_PUBLIC_KEY ? new Vapi(VAPI_PUBLIC_KEY) : null;
 
 const App = () => {
   const [jobs, setJobs] = useState([]);
@@ -21,6 +21,7 @@ const App = () => {
   const [callStatus, setCallStatus] = useState('inactive');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [queueFilter, setQueueFilter] = useState('all'); // all | awaiting_review | in_progress | completed
   const ws = useRef(null);
 
   // Modal & Application State
@@ -28,6 +29,7 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('resume'); // 'resume' | 'manual'
   const [resumeFile, setResumeFile] = useState(null);
   const [resumeRole, setResumeRole] = useState('Senior Backend Engineer');
+  const [resumeConsent, setResumeConsent] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalFeedback, setModalFeedback] = useState(null);
 
@@ -37,8 +39,15 @@ const App = () => {
     email: '',
     github_handle: '',
     role_applied: 'Senior Backend Engineer',
-    phone_number: '+917022683634'
+    phone_number: '+917022683634',
+    voice_consent: false
   });
+
+  // Outreach Edit State
+  const [draftSubject, setDraftSubject] = useState('');
+  const [draftBody, setDraftBody] = useState('');
+  const [isUpdatingDraft, setIsUpdatingDraft] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   // Auto-select first job
   useEffect(() => {
@@ -51,27 +60,34 @@ const App = () => {
     fetchJobs();
     connectWebSocket();
 
-    vapi.on("call-start", () => setCallStatus('active'));
-    vapi.on("call-end", () => setCallStatus('inactive'));
-    vapi.on("error", (err) => {
-      console.error("Vapi Error:", err);
-      setCallStatus('inactive');
-    });
+    if (vapi) {
+      vapi.on("call-start", () => setCallStatus('active'));
+      vapi.on("call-end", () => setCallStatus('inactive'));
+      vapi.on("error", (err) => {
+        console.error("Vapi Error:", err);
+        setCallStatus('inactive');
+      });
+    }
 
     return () => {
       ws.current?.close();
-      vapi.stop();
+      vapi?.stop();
     };
   }, []);
 
   const handleTalkToAI = async (job) => {
     if (callStatus === 'active') {
-      vapi.stop();
+      vapi?.stop();
       return;
     }
 
     setCallStatus('loading');
-    const assistantId = "456654db-f612-457d-81e8-3d04021d0d5b";
+    const assistantId = import.meta.env.VITE_VAPI_ASSISTANT_ID;
+    if (!vapi || !assistantId) {
+      setCallStatus('inactive');
+      alert('Voice screening requires Vapi configuration and verified candidate consent.');
+      return;
+    }
     
     try {
       await vapi.start(assistantId, {
@@ -131,11 +147,11 @@ const App = () => {
       const data = JSON.parse(event.data);
       console.log("WS Event:", data);
       
-      if (data.type === 'job_received') {
+      if (data.type === 'job_received' || data.type === 'review_required') {
         fetchJobs();
       }
 
-      if (data.type === 'job_update' || data.type === 'status_update' || data.type === 'job_complete') {
+      if (data.type === 'job_update' || data.type === 'status_update' || data.type === 'job_complete' || data.type === 'review_required') {
         setJobs(prev => {
           const jobId = data.job_id || data.id;
           const index = prev.findIndex(j => j.id === jobId);
@@ -186,6 +202,26 @@ const App = () => {
     };
   };
 
+  // Recruiter Review Action (Approve / Reject)
+  const handleReview = async (approved) => {
+    if (!selectedJob) return;
+    setIsReviewing(true);
+    try {
+      const res = await fetch(`${API_BASE}/jobs/${selectedJob.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved, reviewer: 'recruiter-dashboard' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Review action failed');
+      await fetchJobs();
+    } catch (err) {
+      alert(`Review action failed: ${err.message}`);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
   // Resume Upload Handler
   const handleResumeSubmit = async (e) => {
     e.preventDefault();
@@ -195,11 +231,12 @@ const App = () => {
     }
 
     setIsSubmitting(true);
-    setModalFeedback({ type: 'info', text: 'Extracting resume details via AI & launching agents...' });
+    setModalFeedback({ type: 'info', text: 'Extracting candidate evidence via AI copilot...' });
 
     const formData = new FormData();
     formData.append('file', resumeFile);
     formData.append('role_applied', resumeRole);
+    formData.append('voice_consent', resumeConsent);
 
     try {
       const res = await fetch(`${API_BASE}/webhook/resume`, {
@@ -211,14 +248,14 @@ const App = () => {
       if (res.ok) {
         setModalFeedback({
           type: 'success',
-          text: `Extracted: ${data.extracted?.name} (@${data.extracted?.github_handle || 'no-gh'}). Dispatched to Research Agent!`
+          text: `Evidence extracted: ${data.extracted?.name} (@${data.extracted?.github_handle || 'no-gh'}). Dispatched for copilot evaluation!`
         });
         setTimeout(() => {
           setShowModal(false);
           setModalFeedback(null);
           setResumeFile(null);
           fetchJobs();
-        }, 2200);
+        }, 2000);
       } else {
         setModalFeedback({ type: 'error', text: data.detail || 'Failed to submit resume.' });
       }
@@ -238,7 +275,7 @@ const App = () => {
     }
 
     setIsSubmitting(true);
-    setModalFeedback({ type: 'info', text: 'Dispatching candidate to autonomous pipeline...' });
+    setModalFeedback({ type: 'info', text: 'Ingesting applicant payload...' });
 
     try {
       const res = await fetch(`${API_BASE}/webhook/applicant`, {
@@ -251,7 +288,7 @@ const App = () => {
       if (res.ok) {
         setModalFeedback({
           type: 'success',
-          text: `Candidate ${manualData.name} dispatched to Autonomous Agents!`
+          text: `Applicant ${manualData.name} submitted for evaluation!`
         });
         setTimeout(() => {
           setShowModal(false);
@@ -261,12 +298,13 @@ const App = () => {
             email: '',
             github_handle: '',
             role_applied: 'Senior Backend Engineer',
-            phone_number: '+917022683634'
+            phone_number: '+917022683634',
+            voice_consent: false
           });
           fetchJobs();
         }, 1800);
       } else {
-        setModalFeedback({ type: 'error', text: data.detail || 'Failed to dispatch candidate.' });
+        setModalFeedback({ type: 'error', text: data.detail || 'Failed to dispatch applicant.' });
       }
     } catch (err) {
       setModalFeedback({ type: 'error', text: `Network error: ${err.message}` });
@@ -284,17 +322,38 @@ const App = () => {
     }
   }, [selectedJob?.thoughts]);
 
+  // Sync draft text on job selection
+  useEffect(() => {
+    if (selectedJob?.evaluation) {
+      setDraftSubject(selectedJob.evaluation.draft_email_subject || `Next Steps: ${selectedJob.role_applied} at Engineering`);
+      setDraftBody(
+        selectedJob.evaluation.draft_email_body || 
+        (selectedJob.outcome?.email_preview || `Hi ${selectedJob.payload?.name || 'there'},\n\nWe reviewed your technical background and were impressed by your projects. We would love to discuss the ${selectedJob.role_applied} role with you.`)
+      );
+    }
+  }, [selectedJob]);
+
+  // Filtered Queue
+  const filteredJobs = jobs.filter(job => {
+    if (queueFilter === 'awaiting_review') return job.status === 'awaiting_review';
+    if (queueFilter === 'in_progress') return ['received', 'researching', 'reasoning', 'acting'].includes(job.status);
+    if (queueFilter === 'completed') return job.status === 'complete';
+    return true;
+  });
+
+  const awaitingCount = jobs.filter(j => j.status === 'awaiting_review').length;
+
   return (
     <div className="app-container">
       {/* Sidebar Container */}
       <div className="sidebar-container">
         <div className="glass-card" style={{ height: '100%', overflowY: 'auto' }}>
           <div style={{ padding: '24px' }}>
-            <h1 style={{ fontSize: '1.8rem', fontWeight: 800, letterSpacing: '-1px', marginBottom: '4px' }}>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-1px', marginBottom: '2px' }}>
               GENIUS<span style={{ color: 'var(--accent-primary)' }}>AI</span>
             </h1>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '16px' }}>
-              Autonomous Recruiting Engine
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' }}>
+              Recruiting Copilot
             </p>
 
             {/* Launch Candidate Modal Button */}
@@ -318,7 +377,36 @@ const App = () => {
                 transition: 'all 0.2s ease'
               }}
             >
-              ✨ Apply / Test Candidate
+              📄 Ingest Candidate / Resume
+            </button>
+          </div>
+
+          {/* Review Queue Filters */}
+          <div className="queue-filter-bar">
+            <button 
+              className={`queue-tab ${queueFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setQueueFilter('all')}
+            >
+              All ({jobs.length})
+            </button>
+            <button 
+              className={`queue-tab ${queueFilter === 'awaiting_review' ? 'active' : ''}`}
+              onClick={() => setQueueFilter('awaiting_review')}
+              style={{ borderColor: awaitingCount > 0 ? '#f59e0b' : 'inherit' }}
+            >
+              Review Queue {awaitingCount > 0 && `(${awaitingCount})`}
+            </button>
+            <button 
+              className={`queue-tab ${queueFilter === 'in_progress' ? 'active' : ''}`}
+              onClick={() => setQueueFilter('in_progress')}
+            >
+              Running
+            </button>
+            <button 
+              className={`queue-tab ${queueFilter === 'completed' ? 'active' : ''}`}
+              onClick={() => setQueueFilter('completed')}
+            >
+              Done
             </button>
           </div>
 
@@ -338,7 +426,7 @@ const App = () => {
           </div>
 
           <div style={{ padding: '0 12px' }}>
-            {jobs.map(job => (
+            {filteredJobs.map(job => (
               <div 
                 key={job.id} 
                 className={`sidebar-item ${selectedJobId === job.id ? 'active' : ''}`}
@@ -346,18 +434,25 @@ const App = () => {
               >
                 <div className="sidebar-info" style={{ width: '100%' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>
                       {job.payload?.name || 'Loading...'}
                     </span>
                     {job.match_score && (
                       <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--success)' }}>
-                        {job.match_score}% Match
+                        {job.match_score}%
                       </span>
                     )}
                   </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '2px' }}>
-                    {job.role_applied || 'Unknown Role'}
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                      {job.role_applied || 'Unknown Role'}
+                    </p>
+                    {job.status === 'awaiting_review' && (
+                      <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 800, background: 'rgba(245, 158, 11, 0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+                        NEEDS REVIEW
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
                 <span className={`status-indicator status-${job.status?.toLowerCase()}`}></span>
@@ -371,17 +466,17 @@ const App = () => {
       <div className="main-content">
         {!selectedJob ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)', gap: '12px' }}>
-            <div style={{ fontSize: '2.5rem' }}>🤖</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fff' }}>No Candidate Selected</div>
-            <p style={{ fontSize: '0.9rem' }}>Click <strong>✨ Apply / Test Candidate</strong> to upload a resume or test a profile.</p>
+            <div style={{ fontSize: '2.5rem' }}>📋</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fff' }}>Select a Candidate from the Queue</div>
+            <p style={{ fontSize: '0.9rem' }}>Use <strong>📄 Ingest Candidate / Resume</strong> to begin evidence extraction.</p>
           </div>
         ) : (
-          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+          <div style={{ maxWidth: '920px', margin: '0 auto' }}>
+            {/* Candidate Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
               <div>
-                <h2 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '8px' }}>{selectedJob.payload?.name}</h2>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <h2 style={{ fontSize: '2.3rem', fontWeight: 800, marginBottom: '6px' }}>{selectedJob.payload?.name}</h2>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{selectedJob.role_applied}</span>
                   <span style={{ color: 'var(--text-dim)' }}>•</span>
                   <span style={{ color: 'var(--text-dim)' }}>{selectedJob.email}</span>
@@ -398,113 +493,206 @@ const App = () => {
                       </a>
                     </>
                   )}
+                  {selectedJob.payload?.voice_consent && (
+                    <span style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', padding: '2px 8px', borderRadius: '100px', fontWeight: 700 }}>
+                      ✓ Voice Consented
+                    </span>
+                  )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                {selectedJob.decision === 'STRONG_YES' && (
-                  <div className="glass-card calendar-badge" style={{ padding: '12px 24px', textAlign: 'center', background: 'rgba(52, 211, 153, 0.1)', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 800 }}>Autonomously Handled</div>
-                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      📅 Interview Scheduled
+              
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {selectedJob.decision === 'STRONG_YES' && selectedJob.review_status === 'approved' && (
+                  <div className="glass-card calendar-badge" style={{ padding: '10px 18px', textAlign: 'center', background: 'rgba(52, 211, 153, 0.1)', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--success)', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 800 }}>Recruiter Approved</div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      📅 Scheduling link sent
                     </div>
                   </div>
                 )}
 
-                {(selectedJob.decision === 'STRONG_YES' || selectedJob.decision === 'SOFT_YES') && (
+                {selectedJob.payload?.voice_consent && (selectedJob.decision === 'STRONG_YES' || selectedJob.decision === 'SOFT_YES') && (
                   <button 
                     onClick={() => handleTalkToAI(selectedJob)}
                     className={`btn-voice ${callStatus === 'active' ? 'active' : ''}`}
                     disabled={callStatus === 'loading'}
                   >
                     {callStatus === 'loading' ? 'Connecting...' : 
-                     callStatus === 'active' ? '⏹ Stop Call' : '🎙 Talk to AI'}
+                     callStatus === 'active' ? '⏹ End Call' : '🎙 Start Consented Technical Screen'}
                   </button>
                 )}
 
-                <div className="glass-card" style={{ padding: '12px 24px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>CONFIDENCE</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)' }}>
+                <div className="glass-card" style={{ padding: '10px 20px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginBottom: '2px' }}>CONFIDENCE</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--success)' }}>
                     {selectedJob.evaluation?.confidence_score || 0}%
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Agent Monologue */}
-            <div className="glass-card" style={{ padding: '20px', marginBottom: '32px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(99,102,241,0.2)' }}>
-              <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                Live Agent Monologue
+            {/* HUMAN-IN-THE-LOOP RECRUITER REVIEW GATE */}
+            {selectedJob.status === 'awaiting_review' && (
+              <div className="review-gate-card">
+                <div className="review-gate-header">
+                  <div className="review-gate-title">
+                    <span>🛡️</span> Recruiter Review Required
+                  </div>
+                  <div className="review-actions">
+                    <button 
+                      onClick={() => handleReview(true)} 
+                      disabled={isReviewing}
+                      className="btn-approve"
+                    >
+                      {isReviewing ? 'Processing...' : '✓ Approve & Send Actions'}
+                    </button>
+                    <button 
+                      onClick={() => handleReview(false)} 
+                      disabled={isReviewing}
+                      className="btn-reject"
+                    >
+                      Reject Recommendation
+                    </button>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.5, marginBottom: '10px' }}>
+                  AI evaluation complete. All outbound outreach, Slack alerts, and ticket creation are <strong>paused</strong> pending your review. 
+                  <span style={{ color: '#f59e0b', marginLeft: '6px' }}>
+                    (Safe Default: DRY_RUN is active — no real emails or calls are dispatched without explicit configuration.)
+                  </span>
+                </p>
+
+                {/* Editable Outreach Draft Box */}
+                <div className="outreach-editor">
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    Draft Outreach Preview (Recipient: {selectedJob.email})
+                  </div>
+                  <textarea 
+                    className="outreach-textarea"
+                    value={draftBody}
+                    onChange={(e) => setDraftBody(e.target.value)}
+                    placeholder="Candidate email draft..."
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Live Activity Log */}
+            <div className="glass-card" style={{ padding: '18px', marginBottom: '28px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(99,102,241,0.2)' }}>
+              <h3 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '10px', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                Live Copilot Activity Log
               </h3>
               <div 
                 ref={thoughtsRef}
                 style={{ 
-                  height: '120px', 
+                  height: '110px', 
                   overflowY: 'auto', 
                   fontFamily: 'JetBrains Mono, monospace', 
-                  fontSize: '0.8rem',
+                  fontSize: '0.78rem',
                   lineHeight: 1.5,
-                  padding: '12px',
+                  padding: '10px',
                   background: 'rgba(0,0,0,0.2)',
-                  borderRadius: '12px'
+                  borderRadius: '10px'
                 }}
               >
                 {selectedJob.thoughts?.length > 0 ? (
                   selectedJob.thoughts.map((t, i) => (
-                    <div key={i} style={{ marginBottom: '6px', color: 'var(--text-main)' }}>
+                    <div key={i} style={{ marginBottom: '5px', color: 'var(--text-main)' }}>
                       <span style={{ color: 'var(--text-dim)' }}>[{new Date(t.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}]</span>{' '}
                       <span style={{ color: 'var(--accent-primary)', fontWeight: 700 }}>{t.agent.toUpperCase()}</span>: {t.thought}
                     </div>
                   ))
                 ) : (
-                  <div style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Waiting for agent reasoning...</div>
+                  <div style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Operational activity events will appear here...</div>
                 )}
               </div>
             </div>
 
-            {/* Scorecard Grid */}
+            {/* Evidence-Linked Scorecard Grid */}
             {selectedJob.evaluation?.scorecard && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '40px' }}>
-                {Object.entries(selectedJob.evaluation.scorecard).map(([key, value]) => (
-                  <div key={key} className="glass-card" style={{ padding: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <span style={{ textTransform: 'capitalize', fontWeight: 600, fontSize: '0.9rem' }}>
-                        {key.replace('_', ' ')}
-                      </span>
-                      <span style={{ fontWeight: 800, color: 'var(--accent-primary)' }}>{value}/10</span>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '32px' }}>
+                {Object.entries(selectedJob.evaluation.scorecard).map(([key, item]) => {
+                  const scoreValue = typeof item === 'object' ? item.score : item;
+                  const explanation = typeof item === 'object' ? item.explanation : null;
+                  const evidenceList = typeof item === 'object' ? (item.evidence || []) : [];
+                  const missingList = typeof item === 'object' ? (item.missing_evidence || []) : [];
+
+                  return (
+                    <div key={key} className="glass-card" style={{ padding: '18px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ textTransform: 'capitalize', fontWeight: 700, fontSize: '0.88rem' }}>
+                          {key.replace(/_/g, ' ')}
+                        </span>
+                        <span style={{ fontWeight: 800, color: 'var(--accent-primary)' }}>{scoreValue}/10</span>
+                      </div>
+                      
+                      <div className="score-bar-bg" style={{ marginBottom: explanation ? '10px' : '0' }}>
+                        <div className="score-bar-fill" style={{ width: `${scoreValue * 10}%` }}></div>
+                      </div>
+
+                      {explanation && (
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: 1.4, marginTop: '8px' }}>
+                          {explanation}
+                        </p>
+                      )}
+
+                      {/* Evidence Citations */}
+                      {evidenceList.length > 0 && (
+                        <div style={{ marginTop: '8px' }}>
+                          {evidenceList.map((ev, idx) => (
+                            <div key={idx} className="evidence-pill">
+                              <span>📌 [{ev.source_type?.toUpperCase()}]: {ev.quote || ev.locator}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Missing Evidence Note */}
+                      {missingList.length > 0 && (
+                        <div style={{ marginTop: '6px' }}>
+                          {missingList.map((mis, idx) => (
+                            <div key={idx} className="missing-evidence-tag">
+                              <span>⚠️ Unverified: {mis}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="score-bar-bg">
-                      <div className="score-bar-fill" style={{ width: `${value * 10}%` }}></div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* Evaluation Summary */}
-            <div className="glass-card" style={{ padding: '32px', marginBottom: '32px' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'var(--accent-primary)' }}>#</span> Executive Summary
+            {/* Executive Evaluation Summary */}
+            <div className="glass-card" style={{ padding: '28px', marginBottom: '28px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--accent-primary)' }}>#</span> Evidence Synthesis
               </h3>
-              <p style={{ lineHeight: 1.6, color: 'var(--text-main)', fontSize: '1.05rem', marginBottom: '32px' }}>
+              <p style={{ lineHeight: 1.6, color: 'var(--text-main)', fontSize: '1rem', marginBottom: '28px' }}>
                 {selectedJob.evaluation?.summary}
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' }}>
                 <div>
-                  <h4 style={{ color: 'var(--success)', fontWeight: 700, marginBottom: '12px', fontSize: '0.9rem' }}>TOP STRENGTHS</h4>
+                  <h4 style={{ color: 'var(--success)', fontWeight: 700, marginBottom: '10px', fontSize: '0.85rem', letterSpacing: '0.5px' }}>
+                    KEY EVIDENCE & STRENGTHS
+                  </h4>
                   <ul style={{ listStyle: 'none' }}>
                     {selectedJob.evaluation?.strengths?.map((s, i) => (
-                      <li key={i} style={{ marginBottom: '8px', fontSize: '0.95rem', display: 'flex', gap: '10px' }}>
+                      <li key={i} style={{ marginBottom: '8px', fontSize: '0.9rem', display: 'flex', gap: '8px' }}>
                         <span style={{ color: 'var(--success)' }}>✓</span> {s}
                       </li>
                     ))}
                   </ul>
                 </div>
                 <div>
-                  <h4 style={{ color: 'var(--danger)', fontWeight: 700, marginBottom: '12px', fontSize: '0.9rem' }}>CONCERNS</h4>
+                  <h4 style={{ color: 'var(--danger)', fontWeight: 700, marginBottom: '10px', fontSize: '0.85rem', letterSpacing: '0.5px' }}>
+                    AREAS TO PROBE IN INTERVIEW
+                  </h4>
                   <ul style={{ listStyle: 'none' }}>
                     {selectedJob.evaluation?.concerns?.map((c, i) => (
-                      <li key={i} style={{ marginBottom: '8px', fontSize: '0.95rem', display: 'flex', gap: '10px' }}>
+                      <li key={i} style={{ marginBottom: '8px', fontSize: '0.9rem', display: 'flex', gap: '8px' }}>
                         <span style={{ color: 'var(--danger)' }}>!</span> {c}
                       </li>
                     ))}
@@ -514,31 +702,33 @@ const App = () => {
             </div>
 
             {/* Agent Timeline */}
-            <div style={{ marginBottom: '64px' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '16px', letterSpacing: '2px' }}>
-                AGENT TIMELINE
+            <div style={{ marginBottom: '48px' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-dim)', marginBottom: '14px', letterSpacing: '2px' }}>
+                AUDITABLE WORKFLOW TIMELINE
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {selectedJob.agent_steps?.map((step, i) => (
-                  <div key={i} className="glass-card" style={{ padding: '16px', background: 'rgba(255,255,255,0.02)' }}>
+                  <div key={i} className="glass-card" style={{ padding: '14px', background: 'rgba(255,255,255,0.02)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>
                           {step.agent}
                         </span>
-                        <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem' }}>{step.step}</span>
+                        <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>{step.step}</span>
                       </div>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
                         {step.status === 'running' ? 'Processing...' : 'Complete'}
                       </span>
                     </div>
                   </div>
                 ))}
-                {selectedJob.status === 'RESEARCHING' && (
-                  <div className="glass-card status-active" style={{ padding: '16px', background: 'rgba(99,102,241,0.05)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div className="status-indicator status-active"></div>
-                      <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Agent is researching candidate...</span>
+                {selectedJob.status === 'awaiting_review' && (
+                  <div className="glass-card" style={{ padding: '14px', background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.3)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ color: '#f59e0b', fontSize: '1rem' }}>⏸</span>
+                      <span style={{ fontWeight: 600, color: '#f59e0b', fontSize: '0.85rem' }}>
+                        Workflow paused at Review Gate. Awaiting recruiter approval to execute prepared outreach.
+                      </span>
                     </div>
                   </div>
                 )}
@@ -548,13 +738,13 @@ const App = () => {
         )}
       </div>
 
-      {/* MODAL: Apply / Test Candidate */}
+      {/* MODAL: Ingest Candidate / Resume */}
       {showModal && (
         <div className="modal-backdrop" onClick={() => !isSubmitting && setShowModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff' }}>
-                ✨ Test Candidate Application
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff' }}>
+                📄 Ingest Candidate Application
               </h3>
               <button 
                 onClick={() => setShowModal(false)}
@@ -576,7 +766,7 @@ const App = () => {
                 className={`modal-tab ${activeTab === 'manual' ? 'active' : ''}`}
                 onClick={() => { setActiveTab('manual'); setModalFeedback(null); }}
               >
-                ✍️ Manual Details
+                ✍️ Manual Payload
               </button>
             </div>
 
@@ -630,7 +820,7 @@ const App = () => {
                         {resumeFile.name}
                       </div>
                       <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '4px' }}>
-                        {(resumeFile.size / 1024).toFixed(1)} KB — Click to change
+                        {(resumeFile.size / 1024).toFixed(1)} KB — Click to replace
                       </div>
                     </div>
                   ) : (
@@ -660,6 +850,19 @@ const App = () => {
                   </select>
                 </div>
 
+                <div style={{ margin: '14px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="resumeConsentCheck"
+                    checked={resumeConsent}
+                    onChange={(e) => setResumeConsent(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="resumeConsentCheck" style={{ fontSize: '0.82rem', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                    Candidate consented to optional technical voice screen
+                  </label>
+                </div>
+
                 <button 
                   type="submit" 
                   disabled={isSubmitting || !resumeFile}
@@ -674,10 +877,10 @@ const App = () => {
                     fontSize: '0.95rem',
                     cursor: isSubmitting || !resumeFile ? 'not-allowed' : 'pointer',
                     boxShadow: isSubmitting || !resumeFile ? 'none' : '0 4px 20px rgba(99, 102, 241, 0.4)',
-                    marginTop: '12px'
+                    marginTop: '10px'
                   }}
                 >
-                  {isSubmitting ? 'Parsing & Dispatching Agents...' : 'Extract & Launch Agents 🚀'}
+                  {isSubmitting ? 'Parsing & Dispatching...' : 'Extract Evidence & Evaluate 🚀'}
                 </button>
               </form>
             ) : (
@@ -707,17 +910,17 @@ const App = () => {
                 </div>
 
                 <div className="form-group">
-                  <label>GitHub Handle (Optional but recommended)</label>
+                  <label>GitHub Handle</label>
                   <input 
                     className="form-input" 
-                    placeholder="e.g. simonw (without @ or url)"
+                    placeholder="e.g. simonw"
                     value={manualData.github_handle}
                     onChange={(e) => setManualData({ ...manualData, github_handle: e.target.value })}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Role Applied</label>
+                  <label>Target Role</label>
                   <select 
                     className="form-input"
                     value={manualData.role_applied}
@@ -731,14 +934,17 @@ const App = () => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label>Phone Number (for Voice Screen)</label>
+                <div style={{ margin: '14px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input 
-                    className="form-input" 
-                    placeholder="e.g. +917022683634"
-                    value={manualData.phone_number}
-                    onChange={(e) => setManualData({ ...manualData, phone_number: e.target.value })}
+                    type="checkbox" 
+                    id="manualConsentCheck"
+                    checked={manualData.voice_consent}
+                    onChange={(e) => setManualData({ ...manualData, voice_consent: e.target.checked })}
+                    style={{ cursor: 'pointer' }}
                   />
+                  <label htmlFor="manualConsentCheck" style={{ fontSize: '0.82rem', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                    Candidate consented to optional technical voice screen
+                  </label>
                 </div>
 
                 <button 
@@ -755,10 +961,10 @@ const App = () => {
                     fontSize: '0.95rem',
                     cursor: 'pointer',
                     boxShadow: '0 4px 20px rgba(99, 102, 241, 0.4)',
-                    marginTop: '12px'
+                    marginTop: '10px'
                   }}
                 >
-                  {isSubmitting ? 'Dispatching...' : 'Launch Autonomous Pipeline 🚀'}
+                  {isSubmitting ? 'Dispatching...' : 'Start Copilot Pipeline 🚀'}
                 </button>
               </form>
             )}
@@ -777,7 +983,7 @@ const App = () => {
         fontWeight: 700,
         backgroundColor: wsStatus === 'connected' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.1)',
         color: wsStatus === 'connected' ? 'var(--success)' : 'var(--danger)',
-        border: `1px solid ${wsStatus === 'connected' ? 'var(--success)' : 'var(--danger)'}`,
+        border: `1px solid ${wsStatus === 'connected' ? 'var(--success)' : 'var(--error)'}`,
         backdropFilter: 'blur(10px)'
       }}>
         WS: {wsStatus.toUpperCase()}

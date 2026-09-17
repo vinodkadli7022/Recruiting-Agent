@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 async def trigger_screening_call(job_id: str, phone_number: str, candidate_name: str, technical_summary: str):
     """
     Triggers a real-time AI voice screening call via Vapi.ai with database logging.
+    Guarded by ALLOW_AUTOMATED_VOICE_CALLS to require explicit enablement and candidate consent.
     """
+    if not settings.ALLOW_AUTOMATED_VOICE_CALLS:
+        logger.info("Automated voice calls are disabled; recruiter consent flow required")
+        return {"status": "blocked", "reason": "automated_voice_disabled"}
+
     # Idempotency to prevent double-calling
     idempotency_key = hashlib.sha256(f"{job_id}:{phone_number}:voice_call".encode()).hexdigest()
     
@@ -56,8 +61,8 @@ async def trigger_screening_call(job_id: str, phone_number: str, candidate_name:
             "customer": {"number": phone_number, "name": candidate_name},
             "assistantOverrides": {
                 "variableValues": {
-                    "tech_context": technical_summary,
-                    "candidate_name": candidate_name
+                    "candidate_name": candidate_name,
+                    "technical_summary": technical_summary
                 }
             }
         }
@@ -67,25 +72,31 @@ async def trigger_screening_call(job_id: str, phone_number: str, candidate_name:
             "Content-Type": "application/json"
         }
 
-        # DEBUG: Log the payload keys (not full values for safety)
-        logger.info(f"Triggering Vapi call with Assistant: {settings.VAPI_ASSISTANT_ID[:6]}... and PhoneID: {settings.VAPI_PHONE_NUMBER_ID[:6]}...")
-        
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, json=payload, headers=headers, timeout=10.0)
-                if response.status_code != 200:
-                    logger.error(f"Vapi Error Response: {response.text}")
-                response.raise_for_status()
-                data = response.json()
                 
-                result = {"status": "success", "call_id": data.get("id"), "sent_at": datetime.utcnow().isoformat()}
+            if response.status_code == 201:
+                data = response.json()
+                res = {
+                    "call_id": data.get("id"),
+                    "status": "initiated",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
                 log.status = "complete"
-                log.result = result
+                log.result = res
                 await db.commit()
-                return result
+                return res
+            else:
+                logger.error(f"Vapi call failed: {response.text}")
+                log.status = "failed"
+                log.result = {"error": response.text}
+                await db.commit()
+                return {"status": "failed", "error": response.text}
+
         except Exception as e:
-            logger.error(f"Vapi call failed: {e}")
+            logger.error(f"Failed to trigger Vapi call: {e}")
             log.status = "failed"
             log.result = {"error": str(e)}
             await db.commit()
-            return log.result
+            return {"status": "failed", "error": str(e)}

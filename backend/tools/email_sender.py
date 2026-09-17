@@ -21,7 +21,6 @@ async def send_email_idempotent(job_id: str, to: str, subject: str, body: str) -
     Send email with idempotency guarantee.
     Uses the ActionLog table to prevent duplicate emails for the same job and recipient.
     """
-    # CORRECTION: Simplified but robust idempotency key
     idempotency_key = hashlib.sha256(f"{job_id}:{to}:send_email".encode()).hexdigest()
     
     async with get_db_session() as db:
@@ -51,6 +50,20 @@ async def send_email_idempotent(job_id: str, to: str, subject: str, body: str) -
         else:
             log = existing
 
+        # Safe default: do not deliver candidate communications until DRY_RUN=False
+        if settings.DRY_RUN:
+            logger.info("DRY_RUN enabled; email prepared but not delivered to %s", to)
+            mock_result = {
+                "dry_run": True,
+                "recipient": to,
+                "message_id": f"dry_run_{uuid.uuid4()}",
+                "prepared_at": datetime.utcnow().isoformat()
+            }
+            log.status = "complete"
+            log.result = mock_result
+            await db.commit()
+            return mock_result
+
         # Check for API key
         if not settings.RESEND_API_KEY:
             logger.warning("RESEND_API_KEY not set. Mocking email send.")
@@ -61,7 +74,6 @@ async def send_email_idempotent(job_id: str, to: str, subject: str, body: str) -
             return mock_result
 
         try:
-            # We use loop.run_in_executor because resend SDK is synchronous
             import asyncio
             loop = asyncio.get_event_loop()
             

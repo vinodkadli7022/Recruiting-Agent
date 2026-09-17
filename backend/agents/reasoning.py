@@ -1,5 +1,5 @@
 # backend/agents/reasoning.py
-# Reasoning Agent — evaluation + decision
+# Reasoning Agent — Evidence-Based Candidate Evaluation
 
 import json
 import logging
@@ -10,112 +10,123 @@ from agents.base import BaseAgent, AgentFailure
 logger = logging.getLogger(__name__)
 
 REASONING_SYSTEM = """
-You are a senior technical recruiter focused on identifying high-growth early-career engineering talent.
+You are a senior technical recruiting copilot. Your purpose is to evaluate candidate evidence against job requirements and produce an evidence-grounded evaluation for a human recruiter.
 
-IMPORTANT EVALUATION PHILOSOPHY:
-- Look for technical excellence, creative problem solving, and an ability to build complex, real-world systems.
-- Evidence of deploying full-stack applications or complex data visualization is a highly positive signal.
-- Focus on POTENTIAL and the ability to build 'cool, complex tech' over years of experience.
+CORE COPILOT PRINCIPLES:
+1. Ground every claim in concrete evidence from the resume or GitHub research.
+2. Distinguish clearly between submitted evidence (resume) and external discovery (GitHub repos/stars).
+3. If evidence is missing (e.g. no verified cloud deployment or private repositories), EXPLICITLY state it in "missing_evidence" rather than making negative assumptions.
+4. Do NOT evaluate or reference protected characteristics, age, gender, race, location, or personal background.
+5. Provide a clear recommendation (e.g. "Advance to Technical Screen", "Review Further", "Decline").
 
-You must output a structured evaluation in JSON format with EXACTLY these fields:
-1. "decision": must be one of: "STRONG_YES", "SOFT_YES", or "NO"
-2. "confidence_score": 0-100 (percentage, be generous for growth-potential hires)
-3. "scorecard": {
-    "technical_depth": 1-10,
-    "experience_match": 1-10,
-    "communication_potential": 1-10,
-    "growth_mindset": 1-10
+You must output valid JSON matching this schema:
+{
+  "decision": "STRONG_YES" | "SOFT_YES" | "NO",
+  "recommendation": "Advance to Technical Screen" | "Review Further" | "Decline",
+  "confidence_score": 0-100,
+  "summary": "2-3 sentence evidence-based summary for the recruiter.",
+  "scorecard": {
+    "technical_depth": {
+      "score": 1-10,
+      "confidence": 0.0-1.0,
+      "explanation": "Brief reasoning based on code evidence",
+      "evidence": [
+        {
+          "source_type": "github" | "resume" | "web",
+          "locator": "repository name or resume section",
+          "quote": "specific evidence or project name"
+        }
+      ],
+      "missing_evidence": ["what could not be verified"]
+    },
+    "experience_match": {
+      "score": 1-10,
+      "confidence": 0.0-1.0,
+      "explanation": "Match with role requirements",
+      "evidence": [{"source_type": "resume", "locator": "experience", "quote": "..."}],
+      "missing_evidence": []
+    },
+    "code_quality_and_architecture": {
+      "score": 1-10,
+      "confidence": 0.0-1.0,
+      "explanation": "Code structure, testing, modularity",
+      "evidence": [{"source_type": "github", "locator": "code", "quote": "..."}],
+      "missing_evidence": []
+    },
+    "growth_trajectory": {
+      "score": 1-10,
+      "confidence": 0.0-1.0,
+      "explanation": "Learning rate and project complexity over time",
+      "evidence": [],
+      "missing_evidence": []
+    }
+  },
+  "strengths": ["Key strength 1 with evidence", "Key strength 2 with evidence"],
+  "concerns": ["Potential gap or area to probe in interview"],
+  "missing_evidence_summary": ["List of things not verified"],
+  "personalized_hook": "Specific technical detail from their GitHub/resume for personalized outreach."
 }
-4. "rubric_evidence": A brief explanation for each score.
-5. "summary": A 2-3 sentence executive summary highlighting growth potential.
-6. "strengths": List of top 3 strengths.
-7. "concerns": List of any red flags or areas to probe.
-8. "personalized_hook": A specific detail from their GitHub or research to use in outreach.
 
-Return ONLY valid JSON. No markdown. No extra text.
+Return ONLY valid JSON.
 """
 
 JOB_DESCRIPTION = """
-We are hiring a Junior Full-Stack Engineer with high creative potential.
-
+Role: Software Engineer (Full-Stack / Backend)
 Required:
-- Foundational proficiency in the MERN stack (Node.js, Express.js, MongoDB) for building functional web applications.
-- Exposure to creative coding or 3D visualization libraries like Three.js for interactive user experiences.
-- Solid understanding of Python programming and Object-Oriented principles.
-- Ability to build and showcase personal projects that solve real-world problems (e.g., tracking systems or management tools).
-
-We value: High-trajectory talent who can build clean, working prototypes and has a passion for combining visual elements with backend logic.
+- Strong programming fundamentals in Python, TypeScript/JavaScript, or Go.
+- Experience with web frameworks (FastAPI, Node.js, Express, React) and relational/NoSQL databases.
+- Ability to design, build, and deploy functional software systems.
+- Track record of building personal or open-source projects.
 """
 
 class ReasoningAgent(BaseAgent):
     name = "reasoning"
     
     async def run(self, job_id: str, payload: Dict[str, Any], research: Dict[str, Any], parent_trace_id: str = None) -> Dict[str, Any]:
-        await self.log_thought(job_id, "Analyzing research data and GitHub activity...")
-        await self.log_thought(job_id, f"Cross-referencing candidate skills with Job Description: {payload.get('role_applied')}")
+        await self.log_thought(job_id, "Synthesizing candidate evidence from resume and GitHub activity...")
+        await self.log_thought(job_id, f"Mapping verified technical artifacts against rubric for role: {payload.get('role_applied')}")
         
         user_message = f"""
-Evaluate this candidate for our engineering role.
+Evaluate this candidate for the specified role.
 
 JOB DESCRIPTION:
 {JOB_DESCRIPTION}
 
-CANDIDATE PROFILE (from research agent):
-{json.dumps(research, indent=2)[:3000]}
+ROLE APPLIED: {payload.get('role_applied')}
 
-CANDIDATE SELF-REPORTED:
-Name: {payload.get('name', 'Unknown')}
-Role Applied: {payload.get('role_applied', 'Unknown')}
-Resume: {(payload.get('resume_text') or 'Not provided')[:1500]}
+CANDIDATE SUBMISSION:
+Name: {payload.get('name')}
+Email: {payload.get('email')}
+Resume Text: {(payload.get('resume_text') or 'Not provided')[:2500]}
 
-Research data quality: {research.get('data_quality', 'unknown')}
-Research confidence: {research.get('overall_confidence', 0)}
+RESEARCH EVIDENCE COLLECTED:
+{json.dumps(research, indent=2)}
 
-Evaluate thoroughly. Return valid JSON only.
+Produce a rigorous, evidence-linked scorecard adhering strictly to the schema.
 """
-        await self.log_thought(job_id, "Constructing technical scorecard and growth trajectory analysis...")
         
         raw_result = await self.run_with_tools(
             system=REASONING_SYSTEM,
             user_message=user_message,
-            tools=[],  # Reasoning agent uses no tools — pure reasoning
+            tools=[],
             tool_executor=None,
             job_id=job_id,
             span_name="reasoning.evaluate",
             parent_trace_id=parent_trace_id
         )
         
-        await self.log_thought(job_id, "Finalizing executive summary and hiring decision.")
+        evaluation = self._extract_json(raw_result)
         
-        result = self._extract_json(raw_result)
+        # Ensure decision is normalized
+        decision = evaluation.get("decision", "SOFT_YES").upper()
+        if decision not in ["STRONG_YES", "SOFT_YES", "NO"]:
+            decision = "SOFT_YES"
+        evaluation["decision"] = decision
         
-        # --- NORMALIZE DECISION: Map any legacy/unexpected values to valid ones ---
-        decision_raw = str(result.get("decision", "")).upper().strip()
-        decision_map = {
-            "STRONG_YES": "STRONG_YES",
-            "SOFT_YES":   "SOFT_YES",
-            "YES":        "STRONG_YES",  # Old prompt fallback
-            "MAYBE":      "SOFT_YES",    # Old prompt fallback
-            "NO":         "NO",
-        }
-        normalized = decision_map.get(decision_raw)
-        if not normalized:
-            logger.warning(f"Unrecognized decision '{decision_raw}', defaulting to SOFT_YES")
-            normalized = "SOFT_YES"
-        result["decision"] = normalized
-        logger.info(f"Decision normalized: '{decision_raw}' → '{normalized}'")
-
-        # Validate confidence — normalize to 0-100 if model returns 0.0-1.0
-        raw_conf = result.get("confidence_score", result.get("confidence", 50))
-        if isinstance(raw_conf, float) and raw_conf <= 1.0:
-            raw_conf = int(raw_conf * 100)
-        result["confidence_score"] = max(0, min(100, int(raw_conf)))
-
-        # Safety check: thin data should never result in a hard NO
-        if result.get("decision") == "NO" and research.get("data_quality") == "low":
-            result["decision"] = "SOFT_YES"
-            result["flags"] = result.get("flags", []) + ["auto_upgraded_thin_data"]
-
-        # Evaluated purely on merit without demo overrides
-        
-        return result
+        # Guard against ungrounded rejection on thin data
+        if research.get("data_quality") == "low" and decision == "NO":
+            evaluation["decision"] = "SOFT_YES"
+            evaluation["summary"] += " [Note: Evaluation adjusted to Review Further due to limited public data.]"
+            
+        await self.log_thought(job_id, f"Evaluation generated: {evaluation.get('recommendation', decision)} with {evaluation.get('confidence_score', 80)}% confidence.")
+        return evaluation

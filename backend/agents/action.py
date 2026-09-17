@@ -9,11 +9,12 @@ from agents.base import BaseAgent, AgentFailure
 from tools.email_sender import send_email_idempotent
 from tools.slack import send_slack_notification
 from tools.linear import create_linear_ticket
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 ACTION_SYSTEM = """
-You are an autonomous recruiting action agent.
+You are a recruiting copilot action planner. A human recruiter has approved the plan before any external action is executed.
 
 Based on the evaluation decision, you will draft communications and take actions.
 
@@ -94,25 +95,30 @@ Draft the appropriate communication and list actions. Return valid JSON only.
         # Execute each action with idempotency
         actions_to_take = action_plan.get("actions_to_take", [])
         
-        # DEMO SAFETY: Force voice call for all YES decisions if phone is present
         decision = evaluation.get("decision")
-        if decision in ["STRONG_YES", "SOFT_YES"] and payload.get("phone_number"):
-            if "trigger_voice_call" not in actions_to_take:
-                actions_to_take.append("trigger_voice_call")
-        
-        # DEMO SAFETY: Force email to verified address to prevent Resend 403s
-        recipient_email = "gms73389@gmail.com" 
+        # Voice is never silently added. It requires candidate consent and an
+        # explicit production setting; recruiter-initiated calls remain available.
+        if (settings.ALLOW_AUTOMATED_VOICE_CALLS and payload.get("voice_consent")
+                and decision in ["STRONG_YES", "SOFT_YES"] and payload.get("phone_number")
+                and "trigger_voice_call" not in actions_to_take):
+            actions_to_take.append("trigger_voice_call")
+
+        # Never redirect applicant communication to a test mailbox. Dry-run mode
+        # prevents delivery while preserving the exact intended recipient.
+        recipient_email = payload.get("email")
+        if not recipient_email:
+            raise AgentFailure("Candidate email is required before preparing outreach")
         
         if "send_email" in actions_to_take:
-            # --- AUTONOMOUS CALENDAR HANDOFF (The Unicorn Hack) ---
+            # --- AUTONOMOUS CALENDAR HANDOFF ---
             if decision == "STRONG_YES":
                 from core.config import settings
                 calendly_link = settings.CALENDLY_LINK
                 email_body += f"\n\nTo fast-track your application, please select an interview time directly on our engineering calendar: {calendly_link}"
-                results["calendar_scheduling"] = {"status": "invite_sent", "link": calendly_link}
+                results["calendar_scheduling"] = {"status": "prepared" if settings.DRY_RUN else "invite_sent", "link": calendly_link}
                 await self.log_thought(job_id, f"Auto-generating calendar scheduling link for Fast-Track interview...")
 
-            await self.log_thought(job_id, f"Sending secure email to {recipient_email}...")
+            await self.log_thought(job_id, f"Preparing outreach for {recipient_email}...")
             results["email"] = await send_email_idempotent(
                 job_id=job_id,
                 to=recipient_email,
@@ -121,30 +127,39 @@ Draft the appropriate communication and list actions. Return valid JSON only.
             )
         
         if "create_ticket" in actions_to_take:
-            await self.log_thought(job_id, "Creating interview request ticket in Linear...")
-            results["ticket"] = await create_linear_ticket(
-                title=action_plan.get("ticket_title", f"Candidate: {payload.get('name')}"),
-                description=action_plan.get("ticket_description", ""),
-                decision=evaluation.get("decision")
-            )
+            if settings.DRY_RUN:
+                results["ticket"] = {"dry_run": True, "status": "prepared"}
+            else:
+                await self.log_thought(job_id, "Creating interview request ticket in Linear...")
+                results["ticket"] = await create_linear_ticket(
+                    title=action_plan.get("ticket_title", f"Candidate: {payload.get('name')}"),
+                    description=action_plan.get("ticket_description", ""),
+                    decision=evaluation.get("decision")
+                )
         
         if "send_slack" in actions_to_take:
-            await self.log_thought(job_id, "Broadcasting final outcome to engineering Slack channel...")
-            results["slack"] = await send_slack_notification(
-                message=action_plan.get("slack_message", ""),
-                job_id=job_id,
-                decision=evaluation.get("decision")
-            )
+            if settings.DRY_RUN:
+                results["slack"] = {"dry_run": True, "status": "prepared"}
+            else:
+                await self.log_thought(job_id, "Broadcasting final outcome to engineering Slack channel...")
+                results["slack"] = await send_slack_notification(
+                    message=action_plan.get("slack_message", ""),
+                    job_id=job_id,
+                    decision=evaluation.get("decision")
+                )
 
         if "trigger_voice_call" in actions_to_take and payload.get("phone_number"):
-            await self.log_thought(job_id, f"Initiating real-time AI voice screening call to {payload.get('phone_number')}...")
-            from tools.voice import trigger_screening_call
-            results["voice_call"] = await trigger_screening_call(
-                job_id=job_id,
-                phone_number=payload["phone_number"],
-                candidate_name=payload["name"],
-                technical_summary=evaluation.get("summary", "")
-            )
+            if settings.DRY_RUN:
+                results["voice_call"] = {"dry_run": True, "status": "blocked_until_explicit_consent_and_live_mode"}
+            else:
+                await self.log_thought(job_id, f"Initiating real-time AI voice screening call to {payload.get('phone_number')}...")
+                from tools.voice import trigger_screening_call
+                results["voice_call"] = await trigger_screening_call(
+                    job_id=job_id,
+                    phone_number=payload["phone_number"],
+                    candidate_name=payload["name"],
+                    technical_summary=evaluation.get("summary", "")
+                )
         
         return {
             "actions_taken": actions_to_take,

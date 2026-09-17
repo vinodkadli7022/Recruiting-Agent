@@ -7,7 +7,6 @@ import os
 import sys
 from celery import Celery
 
-# Ensure current directory is in path for local imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import settings
@@ -22,13 +21,13 @@ app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_expires=86400,
-    task_acks_late=True,                    # CRITICAL: don't ack until complete
-    worker_prefetch_multiplier=1,           # One task per worker at a time
-    task_reject_on_worker_lost=True,        # Re-queue if worker crashes
-    task_soft_time_limit=300,               # 5 min soft limit
-    task_time_limit=360,                    # 6 min hard limit
-    broker_connection_timeout=1,            # Fail fast if Redis is down (seconds)
-    broker_connection_retry_on_startup=True,  # Allow retry on cloud Redis
+    task_acks_late=True,
+    worker_prefetch_multiplier=1,
+    task_reject_on_worker_lost=True,
+    task_soft_time_limit=300,
+    task_time_limit=360,
+    broker_connection_timeout=1,
+    broker_connection_retry_on_startup=True,
 )
 
 
@@ -40,9 +39,9 @@ app.conf.update(
 )
 def run_pipeline_task(self, job_id: str, payload: dict):
     """
-    The main Celery task. Runs the full pipeline for one job.
-    Retries up to 3 times with exponential backoff on failure.
-    Survives worker restarts because task_acks_late=True.
+    Main pipeline task: Research → Reasoning → (Human Gate or Action).
+    If HUMAN_REVIEW_REQUIRED=True, this task ends at awaiting_review state.
+    Recruiter approval triggers run_approved_action_task separately.
     """
     import asyncio
     import logging
@@ -55,14 +54,12 @@ def run_pipeline_task(self, job_id: str, payload: dict):
 
     try:
         orchestrator = Orchestrator()
-        # Run the async dispatch in the synchronous Celery worker
         asyncio.run(orchestrator.dispatch(job_id, payload))
         logger.info(f"[CELERY] Pipeline task completed for job_id={job_id}")
-        
+
     except Exception as exc:
         logger.error(f"[CELERY] Pipeline task failed for job_id={job_id}: {exc}")
-        
-        # Log failure to DB using async session
+
         async def log_failure():
             async with get_db_session() as db:
                 from sqlalchemy import select
@@ -72,9 +69,34 @@ def run_pipeline_task(self, job_id: str, payload: dict):
                     job.status = JobStatus.FAILED
                     job.error = str(exc)
                     await db.commit()
-        
+
         asyncio.run(log_failure())
-        
-        # Retry with exponential backoff (Celery handles this)
         raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
 
+
+@app.task(name="pipeline.run_approved_action")
+def run_approved_action_task(job_id: str):
+    """
+    Triggered only after a recruiter explicitly approves via the dashboard.
+    Executes Action phase: email, Linear ticket, Slack, voice call.
+    Guards against unapproved execution at the database level.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from agents.orchestrator import Orchestrator
+    from core.database import get_db_session
+    from core.models import Job
+
+    async def execute():
+        async with get_db_session() as db:
+            result = await db.execute(select(Job).where(Job.id == job_id))
+            job = result.scalars().first()
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+            if job.review_status != "approved":
+                raise ValueError("Recruiter approval is required before executing outreach actions")
+            payload, evaluation, trace_id = job.payload, job.evaluation, job.trace_id
+
+        await Orchestrator().execute_approved_action(job_id, payload, evaluation, trace_id)
+
+    return asyncio.run(execute())

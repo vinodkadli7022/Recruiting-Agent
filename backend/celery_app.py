@@ -28,7 +28,7 @@ app.conf.update(
     task_soft_time_limit=300,               # 5 min soft limit
     task_time_limit=360,                    # 6 min hard limit
     broker_connection_timeout=1,            # Fail fast if Redis is down (seconds)
-    broker_connection_retry_on_startup=False,  # Don't block startup retrying broker
+    broker_connection_retry_on_startup=True,  # Allow retry on cloud Redis
 )
 
 

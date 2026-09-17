@@ -14,4 +14,7 @@ alembic==1.13.2
 omium
 beautifulsoup4
 asyncpg
-
+pypdf
+python-multipart
+sentence-transformers
+pgvector
